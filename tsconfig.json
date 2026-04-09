@@ -1,21 +1,46 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "commonjs",
+    "module": "CommonJS",
+    "moduleResolution": "node",
     "lib": ["ES2022"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "inlineSources": true,
     "experimentalDecorators": true,
-    "emitDecoratorMetadata": true
+    "emitDecoratorMetadata": true,
+    "removeComments": false,
+    "noEmitOnError": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo",
+    "paths": {
+      "@core/*": ["./src/core/*"],
+      "@discovery/*": ["./src/discovery/*"],
+      "@provisioning/*": ["./src/provisioning/*"],
+      "@routing/*": ["./src/routing/*"],
+      "@policy/*": ["./src/policy/*"],
+      "@security/*": ["./src/security/*"],
+      "@orchestration/*": ["./src/orchestration/*"],
+      "@observability/*": ["./src/observability/*"],
+      "@normalization/*": ["./src/normalization/*"],
+      "@adapters/*": ["./src/adapters/*"],
+      "@api/*": ["./src/api/*"]
+    }
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "exclude": ["node_modules", "dist", "tests", "**/*.test.ts", "**/*.spec.ts"]
 }
