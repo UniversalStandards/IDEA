@@ -42,7 +42,6 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "axios": "^1.15.0",
-    "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.1",
     "express": "^5.2.1",
@@ -50,18 +49,15 @@
     "helmet": "^8.1.0",
     "node-cache": "^5.1.2",
     "semver": "^7.7.4",
-    "uuid": "^13.0.0",
     "winston": "^3.19.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.5.2",
     "@types/semver": "^7.7.1",
-    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
     "eslint": "^10.2.0",

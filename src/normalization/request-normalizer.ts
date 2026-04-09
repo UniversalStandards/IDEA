@@ -151,12 +151,12 @@ function extractId(raw: unknown): string {
   return randomUUID();
 }
 
-function normalizeForClient(result: unknown, clientType: string): unknown {
+function normalizeForClient(result: unknown, clientType: string, requestId?: string | null): unknown {
   if (clientType === 'jsonrpc') {
     return {
       jsonrpc: JSONRPC_VERSION,
       result,
-      id: null,
+      id: requestId ?? null,
     };
   }
 
@@ -199,8 +199,22 @@ export class RequestNormalizer {
     return normalized;
   }
 
-  denormalize(result: unknown, clientType: string): unknown {
-    const output = normalizeForClient(result, clientType);
+  /**
+   * Formats a result value for the given client protocol.
+   * Pass the originating `NormalizedRequest` (or just its `id` string) so that
+   * JSON-RPC responses carry the correct request `id`.
+   */
+  denormalize(
+    result: unknown,
+    clientType: string,
+    requestOrId?: NormalizedRequest | string,
+  ): unknown {
+    const requestId =
+      typeof requestOrId === 'string'
+        ? requestOrId
+        : requestOrId?.id ?? null;
+
+    const output = normalizeForClient(result, clientType, requestId);
 
     logger.debug('Response denormalized', {
       clientType,

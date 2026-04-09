@@ -6,6 +6,7 @@ import { approvalGate } from '../policy/approval-gates';
 import { runtimeRegistrar } from '../provisioning/runtime-registrar';
 import { CredentialType } from '../security/credential-broker';
 import { config } from '../config';
+import { timingSafeEqual } from '../security/crypto';
 
 const logger = createLogger('admin-api');
 
@@ -16,7 +17,7 @@ function adminAuth(req: Request, res: Response, next: NextFunction): void {
     return;
   }
   const token = authHeader.slice(7);
-  if (token !== config.JWT_SECRET) {
+  if (!timingSafeEqual(token, config.JWT_SECRET)) {
     res.status(401).json({ error: 'Unauthorized: invalid token' });
     return;
   }

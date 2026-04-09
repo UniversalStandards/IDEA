@@ -30,7 +30,33 @@ export class Server {
 
     // Core middleware
     this.app.use(helmet());
-    this.app.use(cors());
+
+    const corsOriginRaw = this.cfg.CORS_ORIGIN ?? '*';
+    const isWildcard = corsOriginRaw === '*';
+    const allowedOrigins: Set<string> = isWildcard
+      ? new Set()
+      : new Set(corsOriginRaw.split(',').map((s) => s.trim()));
+
+    this.app.use(
+      cors({
+        origin: (requestOrigin, callback) => {
+          if (isWildcard) {
+            callback(null, true);
+            return;
+          }
+          // Allow requests with no origin (e.g. server-to-server, curl)
+          if (!requestOrigin || allowedOrigins.has(requestOrigin)) {
+            callback(null, true);
+          } else {
+            callback(new Error(`CORS: origin '${requestOrigin}' is not allowed`));
+          }
+        },
+        methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization'],
+        credentials: !isWildcard,
+      }),
+    );
+
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
 

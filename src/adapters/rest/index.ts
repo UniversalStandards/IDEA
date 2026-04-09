@@ -8,6 +8,7 @@ import { policyEngine } from '../../policy/policy-engine';
 import { providerRouter } from '../../routing/provider-router';
 import { workflowEngine } from '../../orchestration/workflow-engine';
 import { config } from '../../config';
+import { timingSafeEqual } from '../../security/crypto';
 
 const logger = createLogger('rest-adapter');
 
@@ -18,7 +19,7 @@ function authMiddleware(req: Request, res: Response, next: NextFunction): void {
     return;
   }
   const token = authHeader.slice(7);
-  if (token !== config.JWT_SECRET) {
+  if (!timingSafeEqual(token, config.JWT_SECRET)) {
     res.status(401).json({ error: 'Unauthorized: invalid token' });
     return;
   }

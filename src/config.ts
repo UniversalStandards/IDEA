@@ -51,6 +51,22 @@ const ConfigSchema = z.object({
   JWT_SECRET: z.string().min(32).default('change-me-in-production-must-be-32chars!!'),
   ENCRYPTION_KEY: z.string().min(32).default('change-me-in-production-must-be-32chars!!'),
   ENABLE_SIGNATURE_VALIDATION: boolEnv(true),
+  CORS_ORIGIN: z
+    .string()
+    .default('*')
+    .refine(
+      (v) =>
+        v === '*' ||
+        v.split(',').every((o) => {
+          try {
+            new URL(o.trim());
+            return true;
+          } catch {
+            return false;
+          }
+        }),
+      { message: 'CORS_ORIGIN must be "*" or a comma-separated list of valid URLs' },
+    ),
 
   // Policy & Governance
   ENABLE_POLICY_ENGINE: boolEnv(true),
@@ -78,6 +94,8 @@ const ConfigSchema = z.object({
 
 export type Config = z.infer<typeof ConfigSchema>;
 
+const INSECURE_DEFAULT = 'change-me-in-production-must-be-32chars!!';
+
 let _config: Config | null = null;
 
 export function validateConfig(): Config {
@@ -89,6 +107,16 @@ export function validateConfig(): Config {
     throw new Error(`Configuration validation failed:\n${issues}`);
   }
   _config = result.data;
+
+  if (_config.NODE_ENV === 'production') {
+    if (_config.JWT_SECRET === INSECURE_DEFAULT) {
+      throw new Error('JWT_SECRET must be set to a strong, unique value in production');
+    }
+    if (_config.ENCRYPTION_KEY === INSECURE_DEFAULT) {
+      throw new Error('ENCRYPTION_KEY must be set to a strong, unique value in production');
+    }
+  }
+
   return _config;
 }
 
