@@ -1,5 +1,10 @@
 node_modules/
 dist/
-audit.log
+coverage/
 *.log
+audit.log
 .env
+.env.local
+secrets.enc
+cache/
+runtime/

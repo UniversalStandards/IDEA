@@ -1,18 +1,39 @@
 {
-  "name": "idea",
+  "name": "universal-mcp-orchestration-hub",
   "version": "1.0.0",
   "description": "A universal, intelligent, self-provisioning MCP (Model Context Protocol) orchestration platform that automatically discovers, validates, installs, governs, and operates tools, services, agents, and protocol adapters from public registries, private repositories, enterprise catalogs, and local ecosystems on demand.",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-hub": "dist/index.js"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "test": "jest --passWithNoTests",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src --ext .ts",
+    "lint:fix": "eslint src --ext .ts --fix",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/UniversalStandards/IDEA.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "orchestration",
+    "ai",
+    "multi-provider",
+    "enterprise",
+    "automation"
+  ],
+  "author": "Universal Standards",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/UniversalStandards/IDEA/issues"
@@ -48,5 +69,28 @@
     "ts-jest": "^29.4.9",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "roots": [
+      "<rootDir>/tests"
+    ],
+    "testMatch": [
+      "**/*.test.ts"
+    ],
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/index.ts"
+    ],
+    "coverageDirectory": "coverage",
+    "transform": {
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "tsconfig": "tsconfig.test.json"
+        }
+      ]
+    }
   }
 }
