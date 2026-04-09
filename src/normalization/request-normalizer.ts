@@ -12,23 +12,6 @@ export interface NormalizedRequest {
   traceId?: string;
 }
 
-type JsonRpcRequest = {
-  jsonrpc?: string;
-  id?: string | number;
-  method?: string;
-  params?: unknown;
-};
-
-type RestRequest = {
-  method?: string;
-  path?: string;
-  url?: string;
-  body?: unknown;
-  query?: unknown;
-  headers?: unknown;
-  params?: unknown;
-};
-
 const JSONRPC_VERSION = '2.0';
 
 const CLIENT_HINTS: Record<string, string> = {

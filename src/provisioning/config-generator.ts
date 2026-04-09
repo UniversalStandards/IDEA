@@ -1,5 +1,4 @@
 import * as path from 'path';
-import * as os from 'os';
 import { createLogger } from '../observability/logger';
 import { ToolMetadata } from '../discovery/types';
 

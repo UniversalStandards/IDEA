@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from 'express';
+import { Router, Request, Response, NextFunction, Application } from 'express';
 import { createLogger } from '../../observability/logger';
 import { metrics } from '../../observability/metrics';
 import { registryManager } from '../../discovery/registry-manager';
@@ -25,7 +25,7 @@ function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-export function createRestAdapter(app: { use: Function }): void {
+export function createRestAdapter(app: Application): void {
   const router = Router();
 
   // Apply auth middleware to all routes

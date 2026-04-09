@@ -1,6 +1,5 @@
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { installer } from '../provisioning/installer';
 import { registryManager } from '../discovery/registry-manager';
 import { policyEngine } from '../policy/policy-engine';
 import { providerRouter } from '../routing/provider-router';

@@ -1,10 +1,7 @@
 import 'dotenv/config';
 import { validateConfig, config } from './config';
-import { createLogger } from './observability/logger';
 import { lifecycle } from './core/lifecycle';
 import { Server } from './core/server';
-
-const logger = createLogger('main');
 
 async function main(): Promise<void> {
   validateConfig();

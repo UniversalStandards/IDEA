@@ -28,10 +28,6 @@ export interface InstallResult {
 
 const INSTALL_BASE_DIR = path.resolve(process.cwd(), '.mcp', 'installed');
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 class Semaphore {
   private permits: number;
   private readonly queue: Array<() => void> = [];

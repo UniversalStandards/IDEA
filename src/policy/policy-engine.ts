@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
 import { auditLogger } from '../security/audit';
 import { config } from '../config';
