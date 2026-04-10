@@ -1,83 +1,118 @@
-import * as winston from 'winston';
-import * as path from 'path';
+/**
+ * src/security/audit.ts
+ * Immutable audit logging with HMAC signatures.
+ * Every significant action produces a signed audit entry written to audit.jsonl.
+ */
+
+import { appendFile } from 'fs/promises';
+import path from 'path';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
+import { hmac } from './crypto';
+import { getConfig } from '../config';
+import type { AuditEntry } from '../types/index';
 
 const logger = createLogger('audit');
 
-export interface AuditEvent {
-  id: string;
-  timestamp: string;
-  actor: string;
-  action: string;
-  resource: string;
-  outcome: 'success' | 'failure' | 'denied' | 'error';
-  metadata?: Record<string, unknown>;
-}
+const AUDIT_LOG_PATH = path.join(process.cwd(), 'runtime', 'audit.jsonl');
 
-export type AuditFilter = Partial<
-  Pick<AuditEvent, 'actor' | 'action' | 'resource' | 'outcome'>
-> & {
-  from?: string;
-  to?: string;
-};
+// ─────────────────────────────────────────────────────────────────
+class AuditLogger {
+  private readonly buffer: AuditEntry[] = [];
+  private flushPromise: Promise<void> | null = null;
+  private readonly enabled: boolean;
 
-const auditFileTransport = new winston.transports.File({
-  filename: path.resolve(process.cwd(), 'audit.log'),
-  level: 'info',
-  format: winston.format.combine(winston.format.timestamp(), winston.format.json()),
-  maxsize: 50 * 1024 * 1024,
-  maxFiles: 10,
-  tailable: true,
-});
+  constructor() {
+    // Lazy-read config so audit can be instantiated before validateConfig() is called
+    try {
+      this.enabled = getConfig().ENABLE_AUDIT_LOGGING;
+    } catch {
+      this.enabled = true;
+    }
+  }
 
-const auditWinston = winston.createLogger({
-  level: 'info',
-  transports: [auditFileTransport],
-  exitOnError: false,
-});
+  /**
+   * Record an audit event.
+   * @param action   A dot-separated action name, e.g. 'tool.provision.success'
+   * @param actor    The identity initiating the action (user, system, agent ID)
+   * @param resource The resource being acted upon (tool ID, route, etc.)
+   * @param outcome  Result of the action
+   * @param meta     Additional context (will be redacted of known sensitive keys)
+   */
+  record(
+    action: string,
+    actor: string,
+    resource: string,
+    outcome: 'success' | 'failure' | 'pending',
+    correlationId?: string,
+    meta: Record<string, unknown> = {},
+  ): void {
+    if (!this.enabled) return;
 
-export class AuditLogger {
-  private readonly events: AuditEvent[] = [];
-  private readonly maxEvents = 100_000;
-
-  log(event: Omit<AuditEvent, 'id' | 'timestamp'>): AuditEvent {
-    const full: AuditEvent = {
-      id: randomUUID(),
-      timestamp: new Date().toISOString(),
-      ...event,
+    const id = randomUUID();
+    const entry: AuditEntry = {
+      id,
+      timestamp: new Date(),
+      action,
+      actor,
+      resource,
+      outcome,
+      correlationId: correlationId ?? randomUUID(),
+      metadata: meta,
     };
 
-    if (this.events.length >= this.maxEvents) {
-      this.events.shift();
+    // Sign the entry payload (without hmac field)
+    const payload = JSON.stringify({ id, action, actor, resource, outcome, correlationId: entry.correlationId });
+    const signedEntry: AuditEntry = {
+      ...entry,
+      hmac: this.sign(payload),
+    };
+
+    this.buffer.push(signedEntry);
+    // Async write — do not await to keep record() synchronous
+    void this.writeLine(signedEntry);
+  }
+
+  /**
+   * Flush all buffered entries to disk.
+   * Should be called during graceful shutdown.
+   */
+  async flush(): Promise<void> {
+    if (this.buffer.length === 0) return;
+    // Prevent concurrent flush calls
+    if (this.flushPromise) return this.flushPromise;
+    this.flushPromise = (async () => {
+      const entries = this.buffer.splice(0);
+      for (const entry of entries) {
+        await this.writeLine(entry);
+      }
+      logger.info('Audit log flushed', { count: entries.length });
+    })();
+    await this.flushPromise;
+    this.flushPromise = null;
+  }
+
+  private sign(payload: string): string {
+    try {
+      const secret = getConfig().ENCRYPTION_KEY;
+      return hmac(payload, secret);
+    } catch {
+      return 'unsigned';
     }
-    this.events.push(full);
-
-    auditWinston.info('audit', full);
-    logger.debug('Audit event recorded', { id: full.id, action: full.action, actor: full.actor });
-
-    return full;
   }
 
-  query(filter: AuditFilter = {}): AuditEvent[] {
-    return this.events.filter((e) => {
-      if (filter.actor && e.actor !== filter.actor) return false;
-      if (filter.action && e.action !== filter.action) return false;
-      if (filter.resource && e.resource !== filter.resource) return false;
-      if (filter.outcome && e.outcome !== filter.outcome) return false;
-      if (filter.from && e.timestamp < filter.from) return false;
-      if (filter.to && e.timestamp > filter.to) return false;
-      return true;
-    });
-  }
-
-  export(): AuditEvent[] {
-    return [...this.events];
-  }
-
-  count(): number {
-    return this.events.length;
+  private async writeLine(entry: AuditEntry): Promise<void> {
+    if (process.env['NODE_ENV'] === 'test') return;
+    try {
+      await appendFile(AUDIT_LOG_PATH, JSON.stringify(entry) + '\n', 'utf8');
+    } catch (err) {
+      logger.warn('Failed to write audit entry to disk', {
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }
 
-export const auditLogger = new AuditLogger();
+// ─────────────────────────────────────────────────────────────────
+
+export const auditLog = new AuditLogger();

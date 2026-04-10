@@ -1,65 +1,138 @@
-import * as winston from 'winston';
-import { config } from '../config';
+/**
+ * src/observability/logger.ts
+ * Structured Winston logger with:
+ * - JSON format in production, colorized in development
+ * - Daily log rotation (winston-daily-rotate-file)
+ * - Automatic redaction of sensitive fields
+ * - requestId support for traceability
+ */
 
-const { combine, timestamp, label, printf, colorize, json, errors } = winston.format;
+import { createLogger as winstonCreateLogger, format, transports, type Logger } from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
+import path from 'path';
+import fs from 'fs';
 
-const devFormat = (moduleName: string) =>
-  combine(
-    errors({ stack: true }),
-    colorize({ all: true }),
-    timestamp({ format: 'YYYY-MM-DD HH:mm:ss.SSS' }),
-    label({ label: moduleName }),
-    printf(({ level, message, label: lbl, timestamp: ts, stack, ...meta }) => {
-      const metaStr =
-        Object.keys(meta).length > 0 ? `\n  ${JSON.stringify(meta, null, 2)}` : '';
-      const stackStr = stack ? `\n${stack}` : '';
-      return `${ts} [${lbl}] ${level}: ${message}${metaStr}${stackStr}`;
-    }),
-  );
+// ─────────────────────────────────────────────────────────────────
+const SENSITIVE_KEYS = new Set([
+  'password', 'passwd', 'secret', 'token', 'apikey', 'api_key',
+  'authorization', 'auth', 'key', 'private_key', 'privatekey',
+  'credential', 'credentials', 'jwt', 'bearer', 'access_token',
+  'refresh_token', 'client_secret', 'encryption_key',
+]);
 
-const prodFormat = (moduleName: string) =>
-  combine(
-    errors({ stack: true }),
-    timestamp(),
-    label({ label: moduleName }),
-    json(),
-  );
+const REDACTED = '[REDACTED]';
 
-function resolveLevel(): string {
+function redactSensitive(obj: unknown, depth = 0): unknown {
+  if (depth > 10 || obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map((item) => redactSensitive(item, depth + 1));
+  }
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    if (SENSITIVE_KEYS.has(k.toLowerCase())) {
+      result[k] = REDACTED;
+    } else {
+      result[k] = redactSensitive(v, depth + 1);
+    }
+  }
+  return result;
+}
+
+const redactFormat = format((info) => {
+  return redactSensitive(info) as typeof info;
+});
+
+// ─────────────────────────────────────────────────────────────────
+const nodeEnv = process.env['NODE_ENV'] ?? 'development';
+const logLevel = process.env['LOG_LEVEL'] ?? (nodeEnv === 'production' ? 'info' : 'debug');
+const logsDir = path.join(process.cwd(), 'logs');
+
+if (nodeEnv !== 'test') {
   try {
-    return config.LOG_LEVEL ?? 'info';
+    fs.mkdirSync(logsDir, { recursive: true });
   } catch {
-    return process.env['LOG_LEVEL'] ?? 'info';
+    // Non-fatal — file transport will fail silently if dir cannot be created
   }
 }
 
-function isProduction(): boolean {
-  try {
-    return config.NODE_ENV === 'production';
-  } catch {
-    return process.env['NODE_ENV'] === 'production';
-  }
+const productionTransports = [
+  new DailyRotateFile({
+    dirname: logsDir,
+    filename: 'mcp-hub-%DATE%.log',
+    datePattern: 'YYYY-MM-DD',
+    zippedArchive: true,
+    maxSize: '20m',
+    maxFiles: '30d',
+    format: format.combine(
+      redactFormat(),
+      format.timestamp(),
+      format.json(),
+    ),
+  }),
+  new DailyRotateFile({
+    dirname: logsDir,
+    filename: 'mcp-hub-error-%DATE%.log',
+    datePattern: 'YYYY-MM-DD',
+    level: 'error',
+    zippedArchive: true,
+    maxSize: '10m',
+    maxFiles: '30d',
+    format: format.combine(
+      redactFormat(),
+      format.timestamp(),
+      format.json(),
+    ),
+  }),
+];
+
+const consoleTransport = new transports.Console({
+  format:
+    nodeEnv === 'production'
+      ? format.combine(redactFormat(), format.timestamp(), format.json())
+      : format.combine(
+          redactFormat(),
+          format.colorize(),
+          format.timestamp({ format: 'HH:mm:ss' }),
+          format.printf(({ timestamp, level, message, module: mod, ...rest }) => {
+            const meta = Object.keys(rest).length > 0 ? ` ${JSON.stringify(rest)}` : '';
+            return `${String(timestamp)} [${String(mod ?? 'app')}] ${level}: ${String(message)}${meta}`;
+          }),
+        ),
+});
+
+const rootLogger = winstonCreateLogger({
+  level: logLevel,
+  defaultMeta: { service: 'mcp-hub' },
+  transports:
+    nodeEnv === 'test'
+      ? [] // Suppress all output in tests
+      : nodeEnv === 'production'
+        ? [...productionTransports, consoleTransport]
+        : [consoleTransport],
+  silent: nodeEnv === 'test',
+});
+
+// ─────────────────────────────────────────────────────────────────
+
+export type ModuleLogger = Logger;
+
+/**
+ * Creates a child logger scoped to a specific module.
+ * Automatically includes `module` field in every log entry.
+ */
+export function createLogger(moduleName: string): Logger {
+  return rootLogger.child({ module: moduleName });
 }
 
-export function createLogger(moduleName: string): winston.Logger {
-  const prod = isProduction();
-  const level = resolveLevel();
-
-  const transports: winston.transport[] = [
-    new winston.transports.Console({
-      level,
-      format: prod ? prodFormat(moduleName) : devFormat(moduleName),
-    }),
-  ];
-
-  return winston.createLogger({
-    level,
-    defaultMeta: { module: moduleName },
-    transports,
-    exitOnError: false,
-  });
+/**
+ * Creates a request-scoped child logger that includes requestId and correlationId.
+ */
+export function createRequestLogger(
+  moduleName: string,
+  requestId: string,
+  correlationId?: string,
+): Logger {
+  return rootLogger.child({ module: moduleName, requestId, correlationId });
 }
 
-export const rootLogger = createLogger('root');
-
-export default rootLogger;
+export { rootLogger };
