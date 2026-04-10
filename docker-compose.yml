@@ -1,0 +1,83 @@
+# =============================================================
+# Universal MCP Orchestration Hub — Docker Compose
+# Local development environment
+# =============================================================
+
+services:
+  hub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: mcp-hub
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      LOG_LEVEL: debug
+      MCP_TRANSPORT: http
+      # Override these in a .env file or via environment
+      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production!!}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-change-in-prod!!}
+      CORS_ORIGIN: "*"
+      ENABLE_GITHUB_REGISTRY: "true"
+      ENABLE_OFFICIAL_MCP_REGISTRY: "true"
+      ENABLE_LOCAL_WORKSPACE_SCAN: "false"
+      ENABLE_METRICS: "true"
+      ENABLE_TRACING: "true"
+      ENABLE_AUDIT_LOGGING: "true"
+      COST_TRACKING_ENABLED: "true"
+      REDIS_URL: redis://redis:6379
+    volumes:
+      - hub-runtime:/app/runtime
+      - hub-logs:/app/logs
+      - ./policies:/app/policies:ro
+    networks:
+      - hub-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/health/live', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    container_name: mcp-redis
+    restart: unless-stopped
+    # Redis is NOT exposed to the host in production; only accessible within hub-net
+    expose:
+      - "6379"
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis-data:/data
+    networks:
+      - hub-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  hub-runtime:
+    driver: local
+  hub-logs:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  hub-net:
+    driver: bridge
