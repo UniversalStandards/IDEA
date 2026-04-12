@@ -181,7 +181,7 @@ export interface AuditEntry {
   readonly action: string;
   readonly actor: string;
   readonly resource: string;
-  readonly outcome: 'success' | 'failure' | 'pending';
+  readonly outcome: 'success' | 'failure' | 'pending' | 'denied';
   readonly correlationId: string;
   readonly requestId?: string;
   readonly metadata: Record<string, unknown>;

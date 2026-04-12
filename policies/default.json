@@ -1,0 +1,50 @@
+{
+  "$schema": "https://universalstandards.dev/schemas/policy-pack/v1.json",
+  "name": "default",
+  "version": "1.0.0",
+  "description": "Default policy pack — baseline rules for all environments.",
+  "rules": [
+    {
+      "id": "block-credential-exfiltration",
+      "description": "Block any tool action that attempts to read or copy raw credentials",
+      "conditions": {
+        "action": { "pattern": "credential\\.read|credential\\.export|secret\\.dump" }
+      },
+      "effect": "deny",
+      "severity": "critical"
+    },
+    {
+      "id": "require-approval-cloud-mutations",
+      "description": "Require human approval for any tool that mutates cloud infrastructure",
+      "conditions": {
+        "action": { "pattern": "cloud\\.(create|delete|update|destroy)" },
+        "riskLevel": { "gte": 7 }
+      },
+      "effect": "require_approval",
+      "severity": "high"
+    },
+    {
+      "id": "rate-limit-external-calls",
+      "description": "Enforce rate limiting on tools that make external HTTP calls",
+      "conditions": {
+        "capabilities": { "contains": "http.external" }
+      },
+      "effect": "allow",
+      "rateLimit": {
+        "requests": 100,
+        "windowSeconds": 60
+      },
+      "severity": "medium"
+    },
+    {
+      "id": "allow-read-only-local",
+      "description": "Always allow local read-only filesystem operations",
+      "conditions": {
+        "action": { "pattern": "fs\\.(read|stat|list)" },
+        "environment": { "eq": "local" }
+      },
+      "effect": "allow",
+      "severity": "low"
+    }
+  ]
+}

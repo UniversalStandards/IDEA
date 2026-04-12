@@ -5,6 +5,7 @@
  */
 
 import { appendFile } from 'fs/promises';
+import { mkdirSync } from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
@@ -15,6 +16,13 @@ import type { AuditEntry } from '../types/index';
 const logger = createLogger('audit');
 
 const AUDIT_LOG_PATH = path.join(process.cwd(), 'runtime', 'audit.jsonl');
+
+// Ensure the runtime directory exists before any write attempt
+try {
+  mkdirSync(path.join(process.cwd(), 'runtime'), { recursive: true });
+} catch {
+  // Directory already exists or cannot be created — writeLine will log the failure gracefully
+}
 
 // ─────────────────────────────────────────────────────────────────
 class AuditLogger {
@@ -29,6 +37,32 @@ class AuditLogger {
     } catch {
       this.enabled = true;
     }
+  }
+
+  /**
+   * Convenience method accepting a plain object.
+   * Maps to record() so callers do not need to know the positional signature.
+   */
+  log(entry: {
+    actor: string;
+    action: string;
+    resource: string;
+    outcome: 'success' | 'failure' | 'pending' | 'denied';
+    correlationId?: string;
+    metadata?: Record<string, unknown>;
+  }): void {
+    // Map 'denied' to 'failure' for the canonical AuditEntry outcome while preserving
+    // the original intent in the action name (callers already encode it there).
+    const canonicalOutcome: AuditEntry['outcome'] =
+      entry.outcome === 'denied' ? 'failure' : entry.outcome;
+    this.record(
+      entry.action,
+      entry.actor,
+      entry.resource,
+      canonicalOutcome,
+      entry.correlationId,
+      entry.metadata ?? {},
+    );
   }
 
   /**
@@ -116,3 +150,9 @@ class AuditLogger {
 // ─────────────────────────────────────────────────────────────────
 
 export const auditLog = new AuditLogger();
+
+/**
+ * Alias for auditLog using the legacy camelCase name.
+ * Kept for backward-compatibility with modules that import { auditLogger }.
+ */
+export const auditLogger = auditLog;
