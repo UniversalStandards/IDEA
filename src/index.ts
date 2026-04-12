@@ -17,6 +17,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
-  rootLogger.error('Fatal startup error', { err: err instanceof Error ? err.message : String(err) });
+  rootLogger.error('Fatal startup error', {
+    err: err instanceof Error ? { message: err.message, stack: err.stack } : String(err),
+  });
   process.exit(1);
 });
