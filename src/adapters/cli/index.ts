@@ -73,23 +73,25 @@ export class CliAdapter implements IAdapter {
       );
     }
 
-    // Resolve template variables in arg list: {{key}} -> value
-    const resolvedArgs = this.resolveArgs(tool.args, validation.data);
-
-    // Security: reject any arg containing shell metacharacters
-    for (const arg of resolvedArgs) {
-      if (SHELL_METACHAR_RE.test(arg)) {
+    // Security: reject shell metacharacters in user-supplied parameter values only.
+    // Static args from the tool registration are trusted by the tool author; only
+    // values interpolated from caller-supplied params need sanitization.
+    const paramValues = Object.values(validation.data as Record<string, unknown>).map(String);
+    for (const val of paramValues) {
+      if (SHELL_METACHAR_RE.test(val)) {
         throw new Error(
-          `Security: shell metacharacter detected in argument '${arg}' for tool '${toolId}'. ` +
-            'Sanitize the input or use a fixed argument list.',
+          `Security: shell metacharacter detected in input parameter value '${val}' for tool '${toolId}'. ` +
+            'Sanitize the input.',
         );
       }
     }
 
+    const resolvedArgs = this.resolveArgs(tool.args, validation.data);
+
     const timeoutMs = tool.timeoutMs ?? 30_000;
     const result = await this.runProcess(tool.command, resolvedArgs, {
       timeoutMs,
-      allowedEnvVars: tool.allowedEnvVars,
+      ...(tool.allowedEnvVars !== undefined ? { allowedEnvVars: tool.allowedEnvVars } : {}),
     });
 
     auditLog.record(

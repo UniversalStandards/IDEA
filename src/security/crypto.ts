@@ -113,6 +113,29 @@ export function verifyHmac(payload: string, secret: string, expectedHmac: string
   return constantTimeEqual(actual, expectedHmac);
 }
 
+/**
+ * Compute a SHA-256 hash of a string.
+ * Returns the hex-encoded digest.
+ */
+export function hash(input: string): string {
+  const { createHash } = require('crypto') as typeof import('crypto');
+  return createHash('sha256').update(input).digest('hex');
+}
+
+/**
+ * Alias for generateSecureToken — generates a hex-encoded secure random token.
+ * @param bytes Number of random bytes (output hex length = bytes * 2). Default: 32.
+ */
+export function generateSecret(bytes = 32): string {
+  return generateSecureToken(bytes);
+}
+
+/**
+ * Alias for constantTimeEqual — timing-safe string comparison.
+ * Exported under this name for backward compatibility with callers that expect timingSafeEqual.
+ */
+export { constantTimeEqual as timingSafeEqual };
+
 // ─────────────────────────────────────────────────────────────────
 function padKey(key: string): string {
   // Convert a non-hex key string to a 32-byte hex key by hashing

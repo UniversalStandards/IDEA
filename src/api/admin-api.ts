@@ -54,7 +54,7 @@ adminRouter.get('/capabilities', (req: Request, res: Response) => {
   try {
     // runtimeManager.getCapabilities() may not exist in all versions
     const capabilities =
-      typeof (runtimeManager as unknown as Record<string, unknown>).getCapabilities === 'function'
+      typeof (runtimeManager as unknown as Record<string, unknown>)['getCapabilities'] === 'function'
         ? (runtimeManager as unknown as { getCapabilities: () => unknown[] }).getCapabilities()
         : [];
 

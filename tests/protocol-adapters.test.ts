@@ -13,8 +13,8 @@ import type { NormalizedResult } from '../src/types/index';
 const mockResult = (success: boolean): NormalizedResult => ({
   requestId: 'test-request-id',
   success,
-  data: success ? { value: 42 } : undefined,
-  error: success ? undefined : { code: 'ERR', message: 'fail', retryable: false },
+  ...(success ? { data: { value: 42 } } : {}),
+  ...(!success ? { error: { code: 'ERR', message: 'fail', retryable: false } } : {}),
   durationMs: 10,
   respondedAt: new Date(),
   metadata: {},
