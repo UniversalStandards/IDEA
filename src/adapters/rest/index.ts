@@ -68,7 +68,12 @@ export function createRestAdapter(app: Application): void {
         res.status(400).json({ error: 'query is required' });
         return;
       }
-      const results = await registryManager.search({ query, ...(tags !== undefined ? { tags } : {}), ...(limit !== undefined ? { limit } : {}) });
+      const searchOpts = {
+        query,
+        ...(tags !== undefined ? { tags } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      };
+      const results = await registryManager.search(searchOpts);
       metrics.increment('rest_requests_total', { endpoint: 'POST /tools/search' });
       res.json({ tools: results, count: results.length });
     } catch (err) {
@@ -199,7 +204,12 @@ export function createRestAdapter(app: Application): void {
         return;
       }
 
-      const provider = providerRouter.route({ capability, ...(preferredProvider !== undefined ? { preferredProvider } : {}), ...(fallback !== undefined ? { fallback } : {}) });
+      const routeOpts = {
+        capability,
+        ...(preferredProvider !== undefined ? { preferredProvider } : {}),
+        ...(fallback !== undefined ? { fallback } : {}),
+      };
+      const provider = providerRouter.route(routeOpts);
       if (!provider) {
         res.status(404).json({ error: `No provider available for capability: ${capability}` });
         return;

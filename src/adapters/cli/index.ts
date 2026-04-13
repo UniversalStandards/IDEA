@@ -73,9 +73,9 @@ export class CliAdapter implements IAdapter {
       );
     }
 
-    // Security: reject shell metacharacters in user-supplied parameter values only.
-    // Static args from the tool registration are trusted by the tool author; only
-    // values interpolated from caller-supplied params need sanitization.
+    // Security: reject shell metacharacters.
+    // First validate raw parameter values (user-supplied input before template resolution).
+    // Then also validate resolved args for template args that had substitutions.
     const paramValues = Object.values(validation.data as Record<string, unknown>).map(String);
     for (const val of paramValues) {
       if (SHELL_METACHAR_RE.test(val)) {
@@ -87,6 +87,21 @@ export class CliAdapter implements IAdapter {
     }
 
     const resolvedArgs = this.resolveArgs(tool.args, validation.data);
+
+    // Also validate resolved template args to catch metacharacters injected via substitution.
+    for (let i = 0; i < tool.args.length; i++) {
+      const template = tool.args[i];
+      const resolved = resolvedArgs[i];
+      if (template !== undefined && resolved !== undefined && template !== resolved) {
+        // This arg had a substitution — validate the resolved value
+        if (SHELL_METACHAR_RE.test(resolved)) {
+          throw new Error(
+            `Security: shell metacharacter in resolved argument '${resolved}' for tool '${toolId}'. ` +
+              'Sanitize the input.',
+          );
+        }
+      }
+    }
 
     const timeoutMs = tool.timeoutMs ?? 30_000;
     const result = await this.runProcess(tool.command, resolvedArgs, {
