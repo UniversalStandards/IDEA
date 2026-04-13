@@ -1,9 +1,32 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
+import { appendFile, writeFile, unlink } from 'fs/promises';
+import { mkdirSync } from 'fs';
+import { join } from 'path';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
 
 const logger = createLogger('workflow-engine');
+
+// Runtime directories for state persistence and DLQ
+const RUNTIME_DIR = join(process.cwd(), 'runtime');
+const WORKFLOWS_DIR = join(RUNTIME_DIR, 'workflows');
+const DLQ_PATH = join(RUNTIME_DIR, 'workflow-dlq.jsonl');
+
+// Ensure runtime directories exist at module load time
+try {
+  mkdirSync(WORKFLOWS_DIR, { recursive: true });
+} catch {
+  // Non-fatal — runtime dir creation failure is logged at first use
+}
+
+/** Internal error class for cancelled runs */
+class WorkflowCancelledError extends Error {
+  constructor(runId: string) {
+    super(`Workflow run cancelled: ${runId}`);
+    this.name = 'WorkflowCancelledError';
+  }
+}
 
 export interface WorkflowTrigger {
   type: 'manual' | 'schedule' | 'event' | 'label';
@@ -17,6 +40,12 @@ export interface WorkflowStep {
   params?: Record<string, unknown>;
   onSuccess?: string;
   onFailure?: string;
+  /** Maximum retry attempts for this step (overrides workflow-level default) */
+  maxRetries?: number;
+  /** Initial delay in ms before first retry (overrides workflow-level default) */
+  initialDelayMs?: number;
+  /** Multiplier applied to delay on each subsequent retry (overrides workflow-level default) */
+  backoffMultiplier?: number;
 }
 
 export interface Workflow {
@@ -25,6 +54,12 @@ export interface Workflow {
   trigger: WorkflowTrigger;
   steps: WorkflowStep[];
   enabled: boolean;
+  /** Global default maximum retry attempts for all steps */
+  maxRetries?: number;
+  /** Global default initial retry delay in ms */
+  initialDelayMs?: number;
+  /** Global default backoff multiplier */
+  backoffMultiplier?: number;
 }
 
 export interface WorkflowRunResult {
@@ -45,10 +80,22 @@ interface StepRunResult {
   error?: string;
 }
 
+/** DLQ record written to workflow-dlq.jsonl for permanently failed runs */
+interface DlqEntry {
+  runId: string;
+  workflowId: string;
+  workflowName: string;
+  failedAt: string;
+  error: string;
+  stepResults: Record<string, StepRunResult>;
+}
+
 export class WorkflowEngine extends EventEmitter {
   private readonly workflows = new Map<string, Workflow>();
   private readonly runHistory: WorkflowRunResult[] = [];
   private readonly MAX_HISTORY = 500;
+  /** Set of runIds that have been cancelled */
+  private readonly cancelledRuns = new Set<string>();
 
   registerWorkflow(wf: Workflow): void {
     this.workflows.set(wf.id, wf);
@@ -95,13 +142,25 @@ export class WorkflowEngine extends EventEmitter {
       input,
     };
 
+    this.emit('workflow:started', { runId, workflowId });
+
+    let cancelled = false;
     try {
       await this.executeWorkflow(wf, run, input ?? {});
       run.success = true;
     } catch (err) {
-      run.error = err instanceof Error ? err.message : String(err);
-      run.success = false;
-      logger.warn('Workflow run failed', { runId, workflowId, error: run.error });
+      if (err instanceof WorkflowCancelledError) {
+        cancelled = true;
+        run.error = err.message;
+        run.success = false;
+        logger.info('Workflow run cancelled', { runId, workflowId });
+      } else {
+        run.error = err instanceof Error ? err.message : String(err);
+        run.success = false;
+        logger.warn('Workflow run failed', { runId, workflowId, error: run.error });
+        // Write to DLQ for permanently failed runs
+        await this.writeToDlq(wf, run);
+      }
     }
 
     run.completedAt = new Date();
@@ -115,9 +174,32 @@ export class WorkflowEngine extends EventEmitter {
       success: String(run.success),
     });
 
+    // Clean up persisted state file on success
+    if (run.success) {
+      await this.deleteStateFile(run.runId);
+    }
+
     this.addToHistory(run);
+
+    // Emit both new and legacy event names for back-compat
+    this.emit('workflow:complete', run);
     this.emit('workflow:completed', run);
+
+    if (cancelled) {
+      this.emit('workflow:cancelled', { runId, workflowId });
+      this.cancelledRuns.delete(runId);
+    }
+
     return run;
+  }
+
+  /**
+   * Cancel an in-progress workflow run by its runId.
+   * The run will stop at the next step boundary.
+   */
+  async cancelWorkflow(runId: string): Promise<void> {
+    this.cancelledRuns.add(runId);
+    logger.info('Workflow cancellation requested', { runId });
   }
 
   emit(event: string, data?: unknown): boolean {
@@ -147,13 +229,26 @@ export class WorkflowEngine extends EventEmitter {
     let currentStepId: string | undefined = wf.steps[0]?.id;
 
     while (currentStepId) {
+      // Check for cancellation before each step
+      if (this.cancelledRuns.has(run.runId)) {
+        throw new WorkflowCancelledError(run.runId);
+      }
+
       const step = wf.steps.find((s) => s.id === currentStepId);
       if (!step) break;
 
-      const stepResult = await this.executeStep(step, input, run.stepResults);
+      const stepResult = await this.executeStepWithRetry(step, wf, input, run);
       run.stepResults[step.id] = stepResult;
 
+      // Persist state after each step
+      await this.persistState(run);
+
       if (stepResult.success) {
+        this.emit('workflow:step:complete', {
+          runId: run.runId,
+          stepId: step.id,
+          output: stepResult.output,
+        });
         currentStepId = step.onSuccess ?? this.nextStepId(wf, step.id);
       } else {
         if (step.onFailure) {
@@ -163,6 +258,58 @@ export class WorkflowEngine extends EventEmitter {
         }
       }
     }
+  }
+
+  private async executeStepWithRetry(
+    step: WorkflowStep,
+    wf: Workflow,
+    input: Record<string, unknown>,
+    run: WorkflowRunResult,
+  ): Promise<StepRunResult> {
+    const maxRetries = step.maxRetries ?? wf.maxRetries ?? 0;
+    const initialDelayMs = step.initialDelayMs ?? wf.initialDelayMs ?? 1000;
+    const backoffMultiplier = step.backoffMultiplier ?? wf.backoffMultiplier ?? 2;
+
+    let delayMs = initialDelayMs;
+    // Execute first attempt outside the retry loop so result is always defined
+    const totalAttempts = maxRetries + 1;
+
+    for (let attempt = 0; attempt < totalAttempts; attempt++) {
+      // Check for cancellation before each attempt
+      if (this.cancelledRuns.has(run.runId)) {
+        throw new WorkflowCancelledError(run.runId);
+      }
+
+      const result = await this.executeStep(step, input, run.stepResults);
+
+      if (result.success) {
+        return result;
+      }
+
+      this.emit('workflow:step:failed', {
+        runId: run.runId,
+        stepId: step.id,
+        error: result.error,
+        attempt,
+      });
+
+      const isLastAttempt = attempt === totalAttempts - 1;
+      if (!isLastAttempt) {
+        logger.debug('Retrying workflow step', {
+          stepId: step.id,
+          attempt: attempt + 1,
+          maxRetries,
+          delayMs,
+        });
+        await this.sleep(delayMs);
+        delayMs = Math.round(delayMs * backoffMultiplier);
+      } else {
+        return result;
+      }
+    }
+
+    // Unreachable: totalAttempts >= 1 always, loop always returns or throws
+    return { stepId: step.id, success: false, error: 'Step execution produced no result' };
   }
 
   private nextStepId(wf: Workflow, currentId: string): string | undefined {
@@ -216,7 +363,7 @@ export class WorkflowEngine extends EventEmitter {
 
       case 'sleep': {
         const ms = (params['ms'] as number) ?? 1000;
-        await new Promise((r) => setTimeout(r, ms));
+        await this.sleep(ms);
         return { slept: ms };
       }
 
@@ -227,6 +374,49 @@ export class WorkflowEngine extends EventEmitter {
         // Emit custom action event and return
         this.emit(`action:${action}`, params);
         return { dispatched: action, params };
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  private async persistState(run: WorkflowRunResult): Promise<void> {
+    try {
+      const statePath = join(WORKFLOWS_DIR, `${run.runId}.json`);
+      const serializable = {
+        ...run,
+        startedAt: run.startedAt.toISOString(),
+        completedAt: run.completedAt?.toISOString(),
+      };
+      await writeFile(statePath, JSON.stringify(serializable, null, 2), 'utf8');
+    } catch (err) {
+      logger.warn('Failed to persist workflow state', { runId: run.runId, err });
+    }
+  }
+
+  private async deleteStateFile(runId: string): Promise<void> {
+    try {
+      const statePath = join(WORKFLOWS_DIR, `${runId}.json`);
+      await unlink(statePath);
+    } catch {
+      // File may not exist; non-fatal
+    }
+  }
+
+  private async writeToDlq(wf: Workflow, run: WorkflowRunResult): Promise<void> {
+    try {
+      const entry: DlqEntry = {
+        runId: run.runId,
+        workflowId: run.workflowId,
+        workflowName: wf.name,
+        failedAt: new Date().toISOString(),
+        error: run.error ?? 'unknown error',
+        stepResults: run.stepResults,
+      };
+      await appendFile(DLQ_PATH, JSON.stringify(entry) + '\n', 'utf8');
+    } catch (dlqErr) {
+      logger.error('Failed to write to DLQ', { runId: run.runId, dlqErr });
     }
   }
 

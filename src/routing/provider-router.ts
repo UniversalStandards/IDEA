@@ -5,6 +5,11 @@ import { config } from '../config';
 
 const logger = createLogger('provider-router');
 
+const CIRCUIT_OPEN_THRESHOLD = 5;
+const CIRCUIT_COOLDOWN_MS = 60_000;
+const HEALTH_CHECK_INTERVAL_MS = 60_000;
+const LATENCY_MAX_SAMPLES = 100;
+
 export interface AIProvider {
   id: string;
   name: string;
@@ -13,6 +18,23 @@ export interface AIProvider {
   models: string[];
   maxTokens: number;
   capabilities: string[];
+}
+
+interface CircuitBreakerState {
+  status: 'closed' | 'open' | 'half-open';
+  failureCount: number;
+  lastFailureAt: number;
+  cooldownMs: number;
+}
+
+interface ProviderLatencyStats {
+  samples: number[];
+  maxSamples: number;
+}
+
+interface ProviderMetrics {
+  requestCount: number;
+  failureCount: number;
 }
 
 const BUILTIN_PROVIDERS: AIProvider[] = [
@@ -53,20 +75,130 @@ const BUILTIN_PROVIDERS: AIProvider[] = [
   },
 ];
 
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.ceil((p / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, idx)] ?? 0;
+}
+
 export class ProviderRouter {
   private readonly providers = new Map<string, AIProvider>();
   private readonly healthCache = new Map<string, { healthy: boolean; checkedAt: number }>();
   private readonly HEALTH_CACHE_TTL_MS = 30_000;
+  private readonly circuitBreakers = new Map<string, CircuitBreakerState>();
+  private readonly latencyStats = new Map<string, ProviderLatencyStats>();
+  private readonly providerMetrics = new Map<string, ProviderMetrics>();
+  private healthCheckTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
     for (const p of BUILTIN_PROVIDERS) {
       this.providers.set(p.id, { ...p });
+    }
+    if (process.env['NODE_ENV'] !== 'test') {
+      this.startHealthChecks();
     }
   }
 
   registerProvider(provider: AIProvider): void {
     this.providers.set(provider.id, provider);
     logger.info('AI provider registered', { id: provider.id, name: provider.name });
+  }
+
+  private getCircuitBreaker(providerId: string): CircuitBreakerState {
+    let state = this.circuitBreakers.get(providerId);
+    if (!state) {
+      state = {
+        status: 'closed',
+        failureCount: 0,
+        lastFailureAt: 0,
+        cooldownMs: CIRCUIT_COOLDOWN_MS,
+      };
+      this.circuitBreakers.set(providerId, state);
+    }
+    return state;
+  }
+
+  /** Returns true if the provider is allowed to receive a request, promoting to half-open as needed. */
+  private isCircuitAllowed(providerId: string): boolean {
+    const cb = this.getCircuitBreaker(providerId);
+    if (cb.status === 'closed' || cb.status === 'half-open') return true;
+    // OPEN — check if cooldown has elapsed
+    if (Date.now() - cb.lastFailureAt >= cb.cooldownMs) {
+      cb.status = 'half-open';
+      logger.info('Circuit breaker half-open, allowing probe request', { providerId });
+      return true;
+    }
+    return false;
+  }
+
+  recordSuccess(providerId: string): void {
+    const cb = this.getCircuitBreaker(providerId);
+    if (cb.status === 'half-open') {
+      logger.info('Circuit breaker closed after successful probe', { providerId });
+    }
+    cb.status = 'closed';
+    cb.failureCount = 0;
+
+    const m = this.ensureProviderMetrics(providerId);
+    m.requestCount += 1;
+    metrics.increment('provider_request_total', { providerId, result: 'success' });
+  }
+
+  recordFailure(providerId: string): void {
+    const cb = this.getCircuitBreaker(providerId);
+    cb.failureCount += 1;
+    cb.lastFailureAt = Date.now();
+
+    const m = this.ensureProviderMetrics(providerId);
+    m.failureCount += 1;
+    metrics.increment('provider_request_total', { providerId, result: 'failure' });
+
+    if (cb.status === 'half-open' || cb.failureCount >= CIRCUIT_OPEN_THRESHOLD) {
+      if (cb.status !== 'open') {
+        logger.warn('Circuit breaker opened', { providerId, failureCount: cb.failureCount });
+      }
+      cb.status = 'open';
+    }
+  }
+
+  recordLatency(providerId: string, latencyMs: number): void {
+    let stats = this.latencyStats.get(providerId);
+    if (!stats) {
+      stats = { samples: [], maxSamples: LATENCY_MAX_SAMPLES };
+      this.latencyStats.set(providerId, stats);
+    }
+    stats.samples.push(latencyMs);
+    if (stats.samples.length > stats.maxSamples) {
+      stats.samples.shift();
+    }
+    metrics.gauge('provider_latency_ms', latencyMs, { providerId });
+  }
+
+  getLatencyStats(providerId: string): { p50: number; p95: number; p99: number; count: number } {
+    const stats = this.latencyStats.get(providerId);
+    if (!stats || stats.samples.length === 0) {
+      return { p50: 0, p95: 0, p99: 0, count: 0 };
+    }
+    const sorted = [...stats.samples].sort((a, b) => a - b);
+    return {
+      p50: percentile(sorted, 50),
+      p95: percentile(sorted, 95),
+      p99: percentile(sorted, 99),
+      count: sorted.length,
+    };
+  }
+
+  private ensureProviderMetrics(providerId: string): ProviderMetrics {
+    let m = this.providerMetrics.get(providerId);
+    if (!m) {
+      m = { requestCount: 0, failureCount: 0 };
+      this.providerMetrics.set(providerId, m);
+    }
+    return m;
+  }
+
+  getProviderMetrics(providerId: string): Readonly<ProviderMetrics> {
+    return this.ensureProviderMetrics(providerId);
   }
 
   route(request: {
@@ -78,9 +210,8 @@ export class ProviderRouter {
     const fallbackId = config.FALLBACK_AI_PROVIDER;
     const localId = config.LOCAL_MODEL_PROVIDER;
 
-    // Build priority chain
+    // Build priority chain: preferred → primary → fallback → local
     const chain: string[] = [];
-
     if (request.preferredProvider) chain.push(request.preferredProvider);
     chain.push(defaultId);
     if (request.fallback !== false) {
@@ -107,21 +238,27 @@ export class ProviderRouter {
         if (!cached.healthy) continue;
       }
 
+      // Check circuit breaker
+      if (!this.isCircuitAllowed(id)) {
+        logger.debug('Skipping provider — circuit open', { providerId: id });
+        continue;
+      }
+
       metrics.increment('provider_route_total', { providerId: id, capability: request.capability });
       logger.debug('Provider routed', { providerId: id, capability: request.capability });
       return provider;
     }
 
-    // Last resort: any provider supporting the capability
+    // Last resort: any provider supporting the capability with a closed/half-open circuit
     for (const provider of this.providers.values()) {
-      if (provider.capabilities.includes(request.capability)) {
-        metrics.increment('provider_route_total', {
-          providerId: provider.id,
-          capability: request.capability,
-          fallback: 'true',
-        });
-        return provider;
-      }
+      if (!provider.capabilities.includes(request.capability)) continue;
+      if (!this.isCircuitAllowed(provider.id)) continue;
+      metrics.increment('provider_route_total', {
+        providerId: provider.id,
+        capability: request.capability,
+        fallback: 'true',
+      });
+      return provider;
     }
 
     logger.warn('No provider found for capability', { capability: request.capability });
@@ -141,6 +278,23 @@ export class ProviderRouter {
       this.healthCache.set(providerId, { healthy: false, checkedAt: Date.now() });
       logger.warn('Provider health check failed', { providerId });
       return false;
+    }
+  }
+
+  private startHealthChecks(): void {
+    this.healthCheckTimer = setInterval(() => {
+      for (const id of this.providers.keys()) {
+        this.checkHealth(id).catch((err: unknown) => {
+          logger.error('Background health check error', { providerId: id, err });
+        });
+      }
+    }, HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  stopHealthChecks(): void {
+    if (this.healthCheckTimer !== null) {
+      clearInterval(this.healthCheckTimer);
+      this.healthCheckTimer = null;
     }
   }
 
