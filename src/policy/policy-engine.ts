@@ -111,7 +111,7 @@ function buildConditionFn(conditions: PackConditions): (ctx: PolicyContext) => b
     }
     if (conditions.riskLevel?.gte !== undefined) {
       const level = ctx.metadata?.['riskLevel'];
-      if (typeof level !== 'number' || level < (conditions.riskLevel.gte as number)) return false;
+      if (typeof level !== 'number' || level < conditions.riskLevel.gte) return false;
     }
     if (conditions.capabilities?.contains !== undefined) {
       const caps = ctx.metadata?.['capabilities'];

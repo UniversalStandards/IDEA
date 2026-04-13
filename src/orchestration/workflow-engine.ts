@@ -308,8 +308,7 @@ export class WorkflowEngine extends EventEmitter {
       }
     }
 
-    // Unreachable: totalAttempts >= 1 always, loop always returns or throws
-    return { stepId: step.id, success: false, error: 'Step execution produced no result' };
+    throw new Error(`Step '${step.id}' exceeded maximum retry attempts (${totalAttempts})`);
   }
 
   private nextStepId(wf: Workflow, currentId: string): string | undefined {
