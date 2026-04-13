@@ -244,10 +244,10 @@ export class Installer extends EventEmitter {
         name: tool.name,
         version: tool.version,
         source: mapToolSourceForTrust(tool.source),
-        signatureValid: tool.verified,
-        downloadCount: tool.downloadCount,
-        author: tool.author,
-        metadata: tool.metadata,
+        ...(tool.verified !== undefined ? { signatureValid: tool.verified } : {}),
+        ...(tool.downloadCount !== undefined ? { downloadCount: tool.downloadCount } : {}),
+        ...(tool.author !== undefined ? { author: tool.author } : {}),
+        ...(tool.metadata !== undefined ? { metadata: tool.metadata } : {}),
       };
 
       const trustScore = trustEvaluator.evaluate(trustInput);
