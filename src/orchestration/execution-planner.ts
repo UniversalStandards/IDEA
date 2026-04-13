@@ -61,12 +61,13 @@ export class ExecutionPlanner {
     }
 
     // Step 2: Validate policy
+    const lastStepId = steps.length > 0 ? steps[steps.length - 1]?.id : undefined;
     const validateStep: ExecutionStep = {
       id: `${planId}-validate`,
       type: 'validate',
-      toolId,
+      ...(toolId !== undefined ? { toolId } : {}),
       params: { goal, action, actor: context['actor'] ?? 'system' },
-      dependsOn: steps.length > 0 ? [steps[steps.length - 1]!.id] : undefined,
+      ...(lastStepId !== undefined ? { dependsOn: [lastStepId] } : {}),
     };
     steps.push(validateStep);
 
@@ -75,7 +76,7 @@ export class ExecutionPlanner {
       const approveStep: ExecutionStep = {
         id: `${planId}-approve`,
         type: 'approve',
-        toolId,
+        ...(toolId !== undefined ? { toolId } : {}),
         params: { reason: `Approval required for: ${goal}` },
         dependsOn: [validateStep.id],
       };
@@ -91,7 +92,7 @@ export class ExecutionPlanner {
           type: 'install',
           toolId,
           params: {},
-          dependsOn: [steps[steps.length - 1]!.id],
+          dependsOn: [steps[steps.length - 1]?.id ?? ''],
         };
         steps.push(installStep);
       }
@@ -104,7 +105,7 @@ export class ExecutionPlanner {
         type: 'execute',
         toolId,
         params: { action, ...(params ?? {}) },
-        dependsOn: [steps[steps.length - 1]!.id],
+        dependsOn: [steps[steps.length - 1]?.id ?? ''],
       };
       steps.push(executeStep);
     }
@@ -115,7 +116,7 @@ export class ExecutionPlanner {
         id: `${planId}-notify`,
         type: 'notify',
         params: { goal, success: true },
-        dependsOn: [steps[steps.length - 1]!.id],
+        dependsOn: [steps[steps.length - 1]?.id ?? ''],
       };
       steps.push(notifyStep);
     }
@@ -194,8 +195,9 @@ export class ExecutionPlanner {
       );
 
       for (let i = 0; i < ready.length; i++) {
-        const step = ready[i]!;
-        const result = results[i]!;
+        const step = ready[i];
+        const result = results[i];
+        if (step === undefined || result === undefined) continue;
 
         remaining.splice(remaining.indexOf(step), 1);
         completed.add(step.id);

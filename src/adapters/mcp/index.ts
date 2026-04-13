@@ -35,9 +35,11 @@ export class MCPAdapter {
       },
       async (args) => {
         try {
+          const query = args['query'] as string;
+          const limit = args['limit'] as number | undefined;
           const results = await registryManager.search({
-            query: args.query,
-            limit: args.limit ?? 20,
+            query,
+            limit: limit ?? 20,
           });
           metrics.increment('mcp_tool_calls_total', { tool: 'discover_capabilities' });
           return {
@@ -68,16 +70,17 @@ export class MCPAdapter {
       },
       async (args) => {
         try {
-          const tool = await registryManager.getById(args.toolId);
+          const toolId = args['toolId'] as string;
+          const tool = await registryManager.getById(toolId);
           if (!tool) {
             return {
-              content: [{ type: 'text' as const, text: `Tool not found: ${args.toolId}` }],
+              content: [{ type: 'text' as const, text: `Tool not found: ${toolId}` }],
               isError: true,
             };
           }
 
           const decision = policyEngine.evaluate({
-            toolId: args.toolId,
+            toolId,
             actor: 'mcp-client',
             action: 'install',
             environment: process.env['NODE_ENV'] ?? 'development',
@@ -171,13 +174,16 @@ export class MCPAdapter {
       },
       async (args) => {
         try {
-          const registered = runtimeRegistrar.get(args.toolId);
+          const toolId = args['toolId'] as string;
+          const action = args['action'] as string;
+          const params = args['params'] as Record<string, unknown> | undefined;
+          const registered = runtimeRegistrar.get(toolId);
           if (!registered) {
             return {
               content: [
                 {
                   type: 'text' as const,
-                  text: `Tool not registered: ${args.toolId}. Use install_tool first.`,
+                  text: `Tool not registered: ${toolId}. Use install_tool first.`,
                 },
               ],
               isError: true,
@@ -185,9 +191,9 @@ export class MCPAdapter {
           }
 
           const decision = policyEngine.evaluate({
-            toolId: args.toolId,
+            toolId,
             actor: 'mcp-client',
-            action: args.action,
+            action,
             environment: process.env['NODE_ENV'] ?? 'development',
           });
 
@@ -204,7 +210,7 @@ export class MCPAdapter {
           }
 
           const normalized = requestNormalizer.normalize(
-            { method: args.action, params: args.params ?? {}, toolId: args.toolId },
+            { method: action, params: params ?? {}, toolId },
             'mcp',
           );
 
@@ -216,8 +222,8 @@ export class MCPAdapter {
                 text: JSON.stringify(
                   {
                     executed: true,
-                    toolId: args.toolId,
-                    action: args.action,
+                    toolId,
+                    action,
                     requestId: normalized.id,
                     status: registered.status,
                   },
@@ -290,15 +296,17 @@ export class MCPAdapter {
       async (args) => {
         try {
           let result: unknown;
+          const action = args['action'] as 'list' | 'add' | 'remove';
+          const policy = args['policy'] as Record<string, unknown> | undefined;
 
-          switch (args.action) {
+          switch (action) {
             case 'list': {
               const policies = policyEngine.listPolicies();
               result = { policies, count: policies.length };
               break;
             }
             case 'add': {
-              if (!args.policy) {
+              if (!policy) {
                 return {
                   content: [
                     { type: 'text' as const, text: 'policy object required for add action' },
@@ -306,12 +314,12 @@ export class MCPAdapter {
                   isError: true,
                 };
               }
-              policyEngine.addPolicy(args.policy as unknown as Parameters<typeof policyEngine.addPolicy>[0]);
+              policyEngine.addPolicy(policy as unknown as Parameters<typeof policyEngine.addPolicy>[0]);
               result = { added: true };
               break;
             }
             case 'remove': {
-              const policyId = args.policy?.['id'] as string | undefined;
+              const policyId = policy?.['id'] as string | undefined;
               if (!policyId) {
                 return {
                   content: [
@@ -352,9 +360,12 @@ export class MCPAdapter {
       },
       async (args) => {
         try {
+          const capability = args['capability'] as string;
+          const provider = args['provider'] as string | undefined;
+          const prompt = args['prompt'] as string;
           const routed = providerRouter.route({
-            capability: args.capability,
-            preferredProvider: args.provider,
+            capability,
+            ...(provider !== undefined ? { preferredProvider: provider } : {}),
             fallback: true,
           });
 
@@ -363,7 +374,7 @@ export class MCPAdapter {
               content: [
                 {
                   type: 'text' as const,
-                  text: `No provider available for capability: ${args.capability}`,
+                  text: `No provider available for capability: ${capability}`,
                 },
               ],
               isError: true,
@@ -384,8 +395,8 @@ export class MCPAdapter {
                       models: routed.models,
                       maxTokens: routed.maxTokens,
                     },
-                    capability: args.capability,
-                    prompt: args.prompt,
+                    capability,
+                    prompt,
                     note: 'Route established. Submit prompt directly to provider API.',
                   },
                   null,

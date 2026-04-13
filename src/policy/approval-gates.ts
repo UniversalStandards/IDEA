@@ -120,7 +120,7 @@ export class ApprovalGate {
       action,
       requestedBy,
       reason,
-      metadata,
+      ...(metadata !== undefined ? { metadata } : {}),
       status: 'pending',
       createdAt: new Date().toISOString(),
     };

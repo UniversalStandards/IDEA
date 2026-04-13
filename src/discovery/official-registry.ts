@@ -215,7 +215,7 @@ function smitheryToToolMetadata(server: SmitheryServer): ToolMetadata {
     verified: server.isDeployed === true,
     riskLevel: 'low',
     downloadCount: server.useCount ?? 0,
-    lastUpdated: server.createdAt ? new Date(server.createdAt) : undefined,
+    ...(server.createdAt ? { lastUpdated: new Date(server.createdAt) } : {}),
   };
 }
 
@@ -253,8 +253,9 @@ export class OfficialRegistry implements Registry {
     });
 
     if (options.tags && options.tags.length > 0) {
+      const { tags } = options;
       results = results.filter((tool) =>
-        options.tags!.some(
+        tags.some(
           (tag) =>
             tool.tags.includes(tag.toLowerCase()) ||
             tool.capabilities.includes(tag.toLowerCase()),

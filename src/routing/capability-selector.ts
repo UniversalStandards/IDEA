@@ -47,6 +47,7 @@ export class CapabilitySelector {
     if (scored.length === 0) return null;
 
     const best = scored[0];
+    if (!best) return null;
     logger.debug('Capability selected', {
       requestId: request.id,
       toolId: best.tool.tool.id,

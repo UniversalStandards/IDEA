@@ -117,9 +117,11 @@ export class RuntimeRegistrar {
     });
 
     entry.process = proc;
-    entry.pid = proc.pid;
+    if (proc.pid !== undefined) {
+      entry.pid = proc.pid;
+    }
     entry.status = 'running';
-    entry.errorMessage = undefined;
+    delete entry.errorMessage;
 
     proc.stdout?.on('data', (data: Buffer) => {
       logger.debug('Tool stdout', { toolId, data: data.toString().trim() });
@@ -133,8 +135,8 @@ export class RuntimeRegistrar {
       const current = this.registry.get(toolId);
       if (current?.process === proc) {
         current.status = code === 0 ? 'stopped' : 'error';
-        current.process = undefined;
-        current.pid = undefined;
+        delete current.process;
+        delete current.pid;
         if (code !== 0) {
           current.errorMessage = `Process exited with code ${code ?? 'unknown'}, signal: ${signal ?? 'none'}`;
         }
@@ -150,8 +152,8 @@ export class RuntimeRegistrar {
       const current = this.registry.get(toolId);
       if (current) {
         current.status = 'error';
-        current.process = undefined;
-        current.pid = undefined;
+        delete current.process;
+        delete current.pid;
         current.errorMessage = err.message;
       }
       logger.error('Tool process error', { toolId, err });
@@ -209,8 +211,8 @@ export class RuntimeRegistrar {
     }
 
     entry.status = 'stopped';
-    entry.process = undefined;
-    entry.pid = undefined;
+    delete entry.process;
+    delete entry.pid;
 
     auditLogger.log({
       actor: 'system',

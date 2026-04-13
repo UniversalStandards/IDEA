@@ -55,7 +55,8 @@ class Semaphore {
 
   release(): void {
     if (this.queue.length > 0) {
-      const next = this.queue.shift()!;
+      const next = this.queue.shift();
+      if (next === undefined) { this.permits++; return; }
       next();
     } else {
       this.permits++;

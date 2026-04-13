@@ -33,8 +33,8 @@ export class CredentialBroker {
       name: full.name,
       type: full.type,
       scopes: full.scopes,
-      expiresAt: full.expiresAt,
-      metadata: full.metadata,
+      ...(full.expiresAt !== undefined ? { expiresAt: full.expiresAt } : {}),
+      ...(full.metadata !== undefined ? { metadata: full.metadata } : {}),
     };
 
     secretStore.set(`${CRED_PREFIX}${name}`, full.value);
@@ -88,7 +88,9 @@ export class CredentialBroker {
     if (!this.injections.has(toolId)) {
       this.injections.set(toolId, new Set());
     }
-    this.injections.get(toolId)!.add(credName);
+    const injSet = this.injections.get(toolId) ?? new Set<string>();
+    injSet.add(credName);
+    this.injections.set(toolId, injSet);
 
     auditLogger.log({
       actor: toolId,

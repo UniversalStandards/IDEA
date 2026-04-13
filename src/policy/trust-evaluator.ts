@@ -67,10 +67,10 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
       const semverRegex = /^(\d+)\.(\d+)\.(\d+)/;
       const match = semverRegex.exec(tool.version);
       if (!match) return { weight: 0.15, score: 10, reason: 'Non-semver version string' };
-      const major = parseInt(match[1]!, 10);
+      const major = parseInt(match[1] ?? '0', 10);
       if (major >= 1) return { weight: 0.15, score: 90, reason: 'Stable major version >= 1' };
       if (major === 0) {
-        const minor = parseInt(match[2]!, 10);
+        const minor = parseInt(match[2] ?? '0', 10);
         if (minor >= 5) return { weight: 0.15, score: 60, reason: 'Pre-1.0 but minor >= 5' };
         return { weight: 0.15, score: 30, reason: 'Pre-1.0 early-stage version' };
       }
@@ -184,7 +184,7 @@ export class TrustEvaluator {
   }
 
   getMinimumRequired(action: string): number {
-    return MIN_REQUIRED_BY_ACTION[action] ?? MIN_REQUIRED_BY_ACTION['default']!;
+    return MIN_REQUIRED_BY_ACTION[action] ?? MIN_REQUIRED_BY_ACTION['default'] ?? 25;
   }
 }
 

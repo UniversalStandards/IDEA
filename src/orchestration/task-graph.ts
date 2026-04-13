@@ -86,7 +86,8 @@ export class TaskGraph {
 
         // Find tasks whose dependencies are all completed (not failed)
         for (const id of [...pending]) {
-          const task = this.tasks.get(id)!;
+          const task = this.tasks.get(id);
+          if (!task) throw new Error(`Task ${id} not found in task graph`);
 
           // Check if any dep failed — propagate failure
           const failedDep = task.dependencies.find(

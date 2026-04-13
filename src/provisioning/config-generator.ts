@@ -60,7 +60,7 @@ function buildEnv(tool: ToolMetadata, credentials: Record<string, string>): Reco
   const credKeys = ENV_CREDENTIAL_KEYS[tool.name] ?? [];
   for (const key of credKeys) {
     if (process.env[key] && !env[key]) {
-      env[key] = process.env[key]!;
+      env[key] = process.env[key] ?? '';
     }
   }
 

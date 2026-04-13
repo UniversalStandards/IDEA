@@ -22,7 +22,9 @@ export class Span {
     this.traceId = traceId;
     this.name = name;
     this.startTime = Date.now();
-    this.parentSpanId = parentSpanId;
+    if (parentSpanId !== undefined) {
+      this.parentSpanId = parentSpanId;
+    }
   }
 
   setAttribute(key: string, value: string | number | boolean): this {

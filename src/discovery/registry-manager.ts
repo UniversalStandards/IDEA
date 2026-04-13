@@ -88,8 +88,9 @@ export class RegistryManager {
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < resultsArrays.length; i++) {
-      const result = resultsArrays[i]!;
-      const registry = available[i]!;
+      const result = resultsArrays[i];
+      const registry = available[i];
+      if (result === undefined || registry === undefined) continue;
       if (result.status === 'fulfilled') {
         all.push(...result.value);
         metrics.increment('registry_search_results_total', {
@@ -141,8 +142,9 @@ export class RegistryManager {
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < results.length; i++) {
-      const result = results[i]!;
-      const registry = available[i]!;
+      const result = results[i];
+      const registry = available[i];
+      if (result === undefined || registry === undefined) continue;
       if (result.status === 'fulfilled') {
         all.push(...result.value);
       } else {
@@ -184,8 +186,9 @@ export class RegistryManager {
 
     const available: Registry[] = [];
     for (let i = 0; i < checks.length; i++) {
-      const check = checks[i]!;
-      const registry = candidates[i]!;
+      const check = checks[i];
+      const registry = candidates[i];
+      if (check === undefined || registry === undefined) continue;
       if (check.status === 'fulfilled' && check.value) {
         available.push(registry);
       } else {

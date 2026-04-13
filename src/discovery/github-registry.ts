@@ -60,6 +60,7 @@ function repoToToolMetadata(repo: GithubRepo): ToolMetadata {
     tags.push(repo.language.toLowerCase());
   }
 
+  const license = repo.license?.spdx_id;
   return {
     id: `github:${repo.full_name}`,
     name: repoName,
@@ -68,12 +69,10 @@ function repoToToolMetadata(repo: GithubRepo): ToolMetadata {
     source: 'github',
     registryUrl: repo.html_url,
     repository: repo.clone_url,
-    installCommand: undefined,
-    entryPoint: undefined,
     capabilities,
     tags,
     author: owner,
-    license: repo.license?.spdx_id,
+    ...(license !== undefined ? { license } : {}),
     downloadCount: repo.stargazers_count,
     lastUpdated: new Date(repo.updated_at),
     verified: false,

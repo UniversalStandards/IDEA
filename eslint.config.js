@@ -95,6 +95,8 @@ module.exports = [
       // Allow console in test files for debugging CI failures
       'no-console': 'warn',
       'eqeqeq': ['error', 'always'],
+      // jest.mock() factories require require() calls — cannot use ES imports there
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
 ];

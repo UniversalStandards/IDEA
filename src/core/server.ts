@@ -165,6 +165,7 @@ export class Server {
     }
 
     if (this.httpServer) {
+      const server = this.httpServer;
       await new Promise<void>((resolve) => {
         // Force-resolve after 10s if graceful drain doesn't finish
         const forceTimeout = setTimeout(() => {
@@ -173,7 +174,7 @@ export class Server {
         }, 10_000);
         forceTimeout.unref();
 
-        this.httpServer!.close(() => {
+        server.close(() => {
           clearTimeout(forceTimeout);
           logger.info('HTTP server closed gracefully');
           resolve();
