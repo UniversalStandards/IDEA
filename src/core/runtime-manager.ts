@@ -7,7 +7,7 @@ import { workflowEngine } from '../orchestration/workflow-engine';
 import { capabilitySelector } from '../routing/capability-selector';
 import { scheduler } from '../routing/scheduler';
 import { runtimeRegistrar } from '../provisioning/runtime-registrar';
-import { NormalizedRequest } from '../normalization/request-normalizer';
+import { type NormalizedRequest } from '../normalization/request-normalizer';
 import { requestNormalizer } from '../normalization/request-normalizer';
 
 const logger = createLogger('runtime-manager');

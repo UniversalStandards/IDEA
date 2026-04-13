@@ -11,10 +11,10 @@ import { config } from '../config';
 import { policyEngine } from '../policy/policy-engine';
 import { trustEvaluator } from '../policy/trust-evaluator';
 import { approvalGate } from '../policy/approval-gates';
-import { ToolMetadata } from '../discovery/types';
+import { type ToolMetadata } from '../discovery/types';
 import { dependencyResolver } from './dependency-resolver';
 import { configGenerator } from './config-generator';
-import { runtimeRegistrar, RegisteredTool } from './runtime-registrar';
+import { runtimeRegistrar, type RegisteredTool } from './runtime-registrar';
 
 const logger = createLogger('installer');
 

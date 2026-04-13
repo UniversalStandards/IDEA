@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { createLogger } from '../observability/logger';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './types';
 
 const logger = createLogger('local-scanner');
 

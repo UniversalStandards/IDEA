@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { createLogger } from '../observability/logger';
-import { ToolMetadata } from '../discovery/types';
+import { type ToolMetadata } from '../discovery/types';
 
 const logger = createLogger('config-generator');
 

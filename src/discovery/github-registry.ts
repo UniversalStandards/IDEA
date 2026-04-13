@@ -1,9 +1,9 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import NodeCache from 'node-cache';
 import { config } from '../config';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './types';
 
 const logger = createLogger('github-registry');
 

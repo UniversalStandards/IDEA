@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction, Application } from 'express';
+import { Router, type Request, type Response, type NextFunction, type Application } from 'express';
 import { createLogger } from '../../observability/logger';
 import { metrics } from '../../observability/metrics';
 import { registryManager } from '../../discovery/registry-manager';
@@ -14,7 +14,7 @@ const logger = createLogger('rest-adapter');
 
 function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Unauthorized: missing Bearer token' });
     return;
   }

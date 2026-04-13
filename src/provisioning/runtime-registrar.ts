@@ -1,9 +1,9 @@
-import { ChildProcess, spawn } from 'child_process';
+import { type ChildProcess, spawn } from 'child_process';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
 import { auditLogger } from '../security/audit';
-import { ToolMetadata } from '../discovery/types';
-import { ToolRuntimeConfig } from './config-generator';
+import { type ToolMetadata } from '../discovery/types';
+import { type ToolRuntimeConfig } from './config-generator';
 
 const logger = createLogger('runtime-registrar');
 
@@ -131,7 +131,7 @@ export class RuntimeRegistrar {
 
     proc.on('exit', (code, signal) => {
       const current = this.registry.get(toolId);
-      if (current && current.process === proc) {
+      if (current?.process === proc) {
         current.status = code === 0 ? 'stopped' : 'error';
         current.process = undefined;
         current.pid = undefined;

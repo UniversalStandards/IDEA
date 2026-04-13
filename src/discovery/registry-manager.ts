@@ -4,7 +4,7 @@ import { metrics } from '../observability/metrics';
 import { GithubRegistry } from './github-registry';
 import { OfficialRegistry } from './official-registry';
 import { LocalScanner } from './local-scanner';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './types';
 
 const logger = createLogger('registry-manager');
 
@@ -49,7 +49,7 @@ function sortByTrustAndRelevance(tools: ToolMetadata[], query?: string): ToolMet
     if (bTrust !== aTrust) return bTrust - aTrust;
 
     // Third: query relevance (name exact match > name includes > description)
-    if (query && query.trim()) {
+    if (query?.trim()) {
       const q = query.toLowerCase();
       const aScore =
         a.name.toLowerCase() === q ? 3 : a.name.toLowerCase().includes(q) ? 2 : 1;

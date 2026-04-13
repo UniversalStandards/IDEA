@@ -8,7 +8,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import * as http from 'http';
+import type * as http from 'http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLogger } from '../observability/logger';
 import { type Config } from '../config';
@@ -136,7 +136,7 @@ export class Server {
       res.status(404).json({ error: 'Not found' });
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+     
     this.app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
       logger.error('Unhandled request error', { err });
       res.status(500).json({ error: 'Internal server error' });

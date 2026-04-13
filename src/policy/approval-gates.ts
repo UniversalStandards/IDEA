@@ -67,7 +67,7 @@ export class ApprovalGate {
     return new Promise<ApprovalRequest>((resolve, reject) => {
       const timer = setTimeout(() => {
         const current = this.requests.get(req.id);
-        if (current && current.status === 'pending') {
+        if (current?.status === 'pending') {
           current.status = 'denied';
           current.resolvedAt = new Date().toISOString();
           current.resolvedBy = 'system:timeout';

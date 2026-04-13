@@ -1,7 +1,7 @@
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { RegisteredTool } from '../provisioning/runtime-registrar';
-import { NormalizedRequest } from '../normalization/request-normalizer';
+import { type RegisteredTool } from '../provisioning/runtime-registrar';
+import { type NormalizedRequest } from '../normalization/request-normalizer';
 
 const logger = createLogger('capability-selector');
 
