@@ -15,13 +15,18 @@ jest.mock('../src/security/audit', () => ({
   auditLog: { record: jest.fn() },
 }));
 
+let mockLoggerWarn: jest.Mock;
+
 jest.mock('../src/observability/logger', () => ({
-  createLogger: () => ({
-    info: jest.fn(),
-    debug: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-  }),
+  createLogger: () => {
+    mockLoggerWarn = jest.fn();
+    return {
+      info: jest.fn(),
+      debug: jest.fn(),
+      warn: mockLoggerWarn,
+      error: jest.fn(),
+    };
+  },
 }));
 
 import { CostMonitor } from '../src/observability/cost-monitor';
@@ -99,5 +104,40 @@ describe('CostMonitor', () => {
     getConfig.mockReturnValueOnce({ COST_TRACKING_ENABLED: false, COST_BUDGET_DAILY_USD: 0 });
     monitor.record({ provider: 'openai', model: 'gpt-4', inputTokens: 100, outputTokens: 50, costUsd: 0.01, requestId: 'r1' });
     expect(monitor.getEventCount()).toBe(0);
+  });
+
+  it('daily budget limit emits a warning when exceeded', () => {
+    const { getConfig } = require('../src/config') as { getConfig: jest.Mock };
+
+    // Set budget to $0.005 so the first $0.01 event exceeds it
+    getConfig.mockReturnValue({
+      COST_TRACKING_ENABLED: true,
+      COST_BUDGET_DAILY_USD: 0.005,
+      ENABLE_AUDIT_LOGGING: false,
+    });
+
+    // Create a fresh monitor so it picks up the new config mock
+    const budgetMonitor = new CostMonitor();
+    budgetMonitor.record({
+      provider: 'openai',
+      model: 'gpt-4',
+      inputTokens: 100,
+      outputTokens: 50,
+      costUsd: 0.01,
+      requestId: 'budget-r1',
+    });
+
+    // Restore default mock to avoid polluting other tests
+    getConfig.mockReturnValue({
+      COST_TRACKING_ENABLED: true,
+      COST_BUDGET_DAILY_USD: 0,
+      ENABLE_AUDIT_LOGGING: false,
+    });
+
+    // The logger.warn mock is captured per createLogger() call
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      'Daily cost budget exceeded',
+      expect.objectContaining({ budget: 0.005, actual: 0.01 }),
+    );
   });
 });

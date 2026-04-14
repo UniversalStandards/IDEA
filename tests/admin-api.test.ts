@@ -47,6 +47,7 @@ type MockReq = {
 type MockRes = {
   status: jest.Mock;
   json: jest.Mock;
+  setHeader: jest.Mock;
   _statusCode: number;
   _body: unknown;
 };
@@ -57,6 +58,7 @@ function makeRes(): MockRes {
     _body: null,
     status: jest.fn(),
     json: jest.fn(),
+    setHeader: jest.fn(),
   } as MockRes;
   res.status.mockReturnValue(res);
   res.json.mockImplementation((body: unknown) => {
@@ -147,5 +149,101 @@ describe('Audit query schema validation', () => {
     const { z } = require('zod') as typeof import('zod');
     const schema = z.object({ limit: z.coerce.number().int().min(1).max(500) });
     expect(() => schema.parse({ limit: '501' })).toThrow();
+  });
+});
+
+describe('Admin API — GET /admin/capabilities (via route handler)', () => {
+  it('returns capability list when called with a valid JWT', () => {
+    const { runtimeManager } = require('../src/core/runtime-manager') as {
+      runtimeManager: { isInitialized: jest.Mock; getCapabilities: jest.Mock };
+    };
+    runtimeManager.isInitialized.mockReturnValue(true);
+    runtimeManager.getCapabilities.mockReturnValue([
+      { id: 'cap-1', name: 'Capability One' },
+      { id: 'cap-2', name: 'Capability Two' },
+    ]);
+
+    // Build a minimal Express-like request/response and manually invoke the route layer
+    // that handles GET /capabilities. The handler sits after the requireAuth middleware,
+    // so we walk the router stack to find it.
+    type Layer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (req: unknown, res: unknown) => void }> } };
+    const stack = adminRouter.stack as unknown as Layer[];
+    const capLayer = stack.find((l) => l.route?.path === '/capabilities' && l.route?.methods['get']);
+    expect(capLayer).toBeDefined();
+
+    const req = makeReq({ headers: { authorization: `Bearer ${validToken()}` } });
+    const res = makeRes();
+
+    capLayer!.route!.stack.forEach((s) => s.handle(req, res));
+
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ count: 2 }),
+    );
+    const body = res._body as { capabilities: unknown[]; count: number };
+    expect(body.capabilities).toHaveLength(2);
+  });
+});
+
+describe('Health endpoints — /health/live and /health/ready', () => {
+  it('GET /health/live always returns 200', () => {
+    // Import healthRouter directly and invoke the /live handler
+    const { healthRouter } = require('../src/api/health') as { healthRouter: import('express').Router };
+
+    type Layer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (req: unknown, res: unknown) => void }> } };
+    const stack = healthRouter.stack as unknown as Layer[];
+    const liveLayer = stack.find((l) => l.route?.path === '/live' && l.route?.methods['get']);
+    expect(liveLayer).toBeDefined();
+
+    const req = makeReq();
+    const res = makeRes();
+    liveLayer!.route!.stack.forEach((s) => s.handle(req, res));
+
+    // status was called with 200 OR not at all (defaults to 200 in Express)
+    const statusCall = (res.status as jest.Mock).mock.calls[0];
+    if (statusCall) {
+      expect(statusCall[0]).toBe(200);
+    }
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
+  });
+
+  it('GET /health/ready returns 503 when runtime is not initialized', () => {
+    const { runtimeManager } = require('../src/core/runtime-manager') as {
+      runtimeManager: { isInitialized: jest.Mock };
+    };
+    runtimeManager.isInitialized.mockReturnValueOnce(false);
+
+    const { healthRouter } = require('../src/api/health') as { healthRouter: import('express').Router };
+
+    type Layer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (req: unknown, res: unknown) => void }> } };
+    const stack = healthRouter.stack as unknown as Layer[];
+    const readyLayer = stack.find((l) => l.route?.path === '/ready' && l.route?.methods['get']);
+    expect(readyLayer).toBeDefined();
+
+    const req = makeReq();
+    const res = makeRes();
+    readyLayer!.route!.stack.forEach((s) => s.handle(req, res));
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'unavailable' }));
+  });
+
+  it('GET /health/ready returns 200 when runtime is initialized', () => {
+    const { runtimeManager } = require('../src/core/runtime-manager') as {
+      runtimeManager: { isInitialized: jest.Mock };
+    };
+    runtimeManager.isInitialized.mockReturnValueOnce(true);
+
+    const { healthRouter } = require('../src/api/health') as { healthRouter: import('express').Router };
+
+    type Layer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (req: unknown, res: unknown) => void }> } };
+    const stack = healthRouter.stack as unknown as Layer[];
+    const readyLayer = stack.find((l) => l.route?.path === '/ready' && l.route?.methods['get']);
+    expect(readyLayer).toBeDefined();
+
+    const req = makeReq();
+    const res = makeRes();
+    readyLayer!.route!.stack.forEach((s) => s.handle(req, res));
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
   });
 });

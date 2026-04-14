@@ -191,6 +191,52 @@ describe('Installer', () => {
     expect(result.error).toMatch(/lock already held/i);
   });
 
+  it('failed npm install triggers rollback of install directory', async () => {
+    const { spawn } = require('child_process') as { spawn: jest.Mock };
+    const { EventEmitter } = require('events') as typeof import('events');
+    const { dependencyResolver } = require('../src/provisioning/dependency-resolver') as {
+      dependencyResolver: { resolve: jest.Mock };
+    };
+
+    type MockChild = InstanceType<typeof EventEmitter> & {
+      stdout: InstanceType<typeof EventEmitter>;
+      stderr: InstanceType<typeof EventEmitter>;
+      kill: jest.Mock;
+    };
+
+    // Make the tool have a real package to install so npmInstall calls spawn
+    dependencyResolver.resolve.mockReturnValueOnce({
+      packages: ['failing-tool@1.0.0'],
+      conflicts: [],
+      installOrder: ['failing-tool@1.0.0'],
+    });
+
+    // Override spawn to simulate npm failing (exit code 1 with stderr)
+    spawn.mockImplementationOnce(() => {
+      const child = new EventEmitter() as MockChild;
+      const stdout = new EventEmitter();
+      const stderr = new EventEmitter();
+      Object.assign(child, { stdout, stderr, kill: jest.fn() });
+      process.nextTick(() => {
+        stderr.emit('data', Buffer.from('npm ERR! code E404'));
+        child.emit('close', 1);
+      });
+      return child;
+    });
+
+    const tool = makeTool({
+      id: 'failing-tool',
+      name: 'failing-tool',
+    });
+
+    const result = await installer.install(tool, { dryRun: false });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
+    // rollback() calls fsp.rm to clean up the install directory
+    expect(fsp['rm']).toHaveBeenCalled();
+  });
+
   it('checksum mismatch returns failure and triggers rollback', async () => {
     const tool = makeTool();
 

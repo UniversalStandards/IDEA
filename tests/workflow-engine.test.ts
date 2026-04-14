@@ -195,4 +195,64 @@ describe('WorkflowEngine', () => {
 
     expect(events).toEqual(['started', 'step-complete', 'step-complete', 'complete']);
   });
+
+  it('permanently failed workflow writes a DLQ entry', async () => {
+    const fsp = require('fs/promises') as Record<string, jest.Mock>;
+
+    const wf = makeWorkflow({
+      id: 'dlq-wf',
+      steps: [
+        {
+          id: 'dlq-step',
+          name: 'Always Fails',
+          action: 'emit_event', // missing 'event' param → always throws
+          params: {},
+          maxRetries: 0,       // no retries → immediately permanent failure
+          initialDelayMs: 0,
+          backoffMultiplier: 1,
+        },
+      ],
+    });
+
+    engine.registerWorkflow(wf);
+    const promise = engine.trigger('dlq-wf');
+    await jest.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(false);
+    // appendFile must have been called once with the DLQ path
+    expect(fsp['appendFile']).toHaveBeenCalledTimes(1);
+    const [dlqPath, dlqContent] = fsp['appendFile']!.mock.calls[0] as [string, string];
+    expect(dlqPath).toMatch(/workflow-dlq\.jsonl$/);
+    const entry = JSON.parse(dlqContent.trim()) as Record<string, unknown>;
+    expect(entry['workflowId']).toBe('dlq-wf');
+    expect(typeof entry['error']).toBe('string');
+  });
+
+  it('workflow state is persisted after each step and cleaned up on success', async () => {
+    const fsp = require('fs/promises') as Record<string, jest.Mock>;
+
+    const wf = makeWorkflow({
+      id: 'persist-wf',
+      steps: [
+        { id: 'p1', name: 'Step 1', action: 'noop' },
+        { id: 'p2', name: 'Step 2', action: 'noop' },
+      ],
+    });
+
+    engine.registerWorkflow(wf);
+    const promise = engine.trigger('persist-wf');
+    await jest.runAllTimersAsync();
+    const result = await promise;
+
+    expect(result.success).toBe(true);
+    // writeFile is called once per step to persist intermediate state
+    expect(fsp['writeFile']).toHaveBeenCalled();
+    const writeCall = fsp['writeFile']!.mock.calls[0] as [string, string];
+    expect(writeCall[0]).toMatch(/workflows\/.*\.json$/);
+    const persisted = JSON.parse(writeCall[1]) as Record<string, unknown>;
+    expect(persisted['workflowId']).toBe('persist-wf');
+    // On success the state file is deleted
+    expect(fsp['unlink']).toHaveBeenCalled();
+  });
 });

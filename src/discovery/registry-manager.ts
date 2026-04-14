@@ -16,6 +16,20 @@ const SOURCE_TRUST_ORDER: Record<ToolMetadata['source'], number> = {
   unknown: 0,
 };
 
+/** Cache entry: stores results and the timestamp they were cached at */
+interface CacheEntry {
+  results: ToolMetadata[];
+  cachedAt: number;
+}
+
+function searchCacheKey(options: RegistrySearchOptions): string {
+  return JSON.stringify({
+    q: options.query ?? '',
+    t: options.tags ?? [],
+    l: options.limit ?? 0,
+  });
+}
+
 function deduplicate(tools: ToolMetadata[]): ToolMetadata[] {
   const seen = new Map<string, ToolMetadata>();
 
@@ -65,6 +79,7 @@ function sortByTrustAndRelevance(tools: ToolMetadata[], query?: string): ToolMet
 
 export class RegistryManager {
   private readonly registries: Map<string, Registry> = new Map();
+  private readonly searchCache: Map<string, CacheEntry> = new Map();
 
   registerRegistry(registry: Registry): void {
     this.registries.set(registry.name, registry);
@@ -77,8 +92,27 @@ export class RegistryManager {
     return existed;
   }
 
+  /** Clear the search result cache (useful in tests and after registry changes). */
+  clearCache(): void {
+    this.searchCache.clear();
+  }
+
   async search(options: RegistrySearchOptions): Promise<ToolMetadata[]> {
     const start = Date.now();
+
+    // Check TTL cache
+    let cacheTtlMs = 300_000; // default 5 min
+    try { cacheTtlMs = config.CACHE_TTL * 1000; } catch { /* use default */ }
+
+    if (cacheTtlMs > 0) {
+      const cacheKey = searchCacheKey(options);
+      const cached = this.searchCache.get(cacheKey);
+      if (cached !== undefined && Date.now() - cached.cachedAt < cacheTtlMs) {
+        metrics.increment('registry_search_cache_hits_total');
+        logger.debug('Registry search cache hit', { query: options.query, ttlMs: cacheTtlMs });
+        return cached.results;
+      }
+    }
 
     const available = await this.getAvailableRegistries();
 
@@ -117,6 +151,12 @@ export class RegistryManager {
       deduped: deduped.length,
       returned: limited.length,
     });
+
+    // Store in TTL cache
+    if (cacheTtlMs > 0) {
+      const cacheKey = searchCacheKey(options);
+      this.searchCache.set(cacheKey, { results: limited, cachedAt: Date.now() });
+    }
 
     return limited;
   }

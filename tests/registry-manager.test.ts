@@ -9,6 +9,7 @@ jest.mock('../src/config', () => ({
     ENABLE_OFFICIAL_MCP_REGISTRY: false,
     ENABLE_LOCAL_WORKSPACE_SCAN: false,
     ENABLE_ENTERPRISE_CATALOG: false,
+    CACHE_TTL: 300,
   },
 }));
 
@@ -91,6 +92,8 @@ describe('RegistryManager', () => {
 
   beforeEach(() => {
     manager = new RegistryManager();
+    // Clear the TTL cache so each test starts fresh
+    manager.clearCache();
   });
 
   it('initialization registers all enabled connectors via registerRegistry', () => {
@@ -160,14 +163,30 @@ describe('RegistryManager', () => {
     expect(sharedTools[0]?.source).toBe('official');
   });
 
-  it('search aggregates results from all registered registries on every call', async () => {
+  it('search aggregates results from all registered registries on every call (no cache)', async () => {
     const tool = makeToolMetadata({ id: 'tool-x', name: 'tool-x' });
     const registry = makeMockRegistry('reg-x', [tool]);
     manager.registerRegistry(registry);
 
-    await manager.search({ query: 'tool-x' });
-    await manager.search({ query: 'tool-x' });
+    // Different queries so they don't share a cache key
+    await manager.search({ query: 'query-a' });
+    await manager.search({ query: 'query-b' });
 
     expect(registry.search).toHaveBeenCalledTimes(2);
+  });
+
+  it('results are cached and not re-fetched within TTL window', async () => {
+    const tool = makeToolMetadata({ id: 'tool-c', name: 'tool-c' });
+    const registry = makeMockRegistry('reg-c', [tool]);
+    manager.registerRegistry(registry);
+
+    const first = await manager.search({ query: 'tool-c' });
+    const second = await manager.search({ query: 'tool-c' });
+
+    // Same query: second call must return cached results without hitting the registry again
+    expect(registry.search).toHaveBeenCalledTimes(1);
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]?.id).toBe('tool-c');
   });
 });
