@@ -136,7 +136,6 @@ export class Server {
       res.status(404).json({ error: 'Not found' });
     });
 
-     
     this.app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
       logger.error('Unhandled request error', { err });
       res.status(500).json({ error: 'Internal server error' });

@@ -15,18 +15,16 @@ jest.mock('../src/security/audit', () => ({
   auditLog: { record: jest.fn() },
 }));
 
-let mockLoggerWarn: jest.Mock;
+// Stable warn mock — same reference across all createLogger() calls; cleared in beforeEach
+const mockWarn = jest.fn();
 
 jest.mock('../src/observability/logger', () => ({
-  createLogger: () => {
-    mockLoggerWarn = jest.fn();
-    return {
-      info: jest.fn(),
-      debug: jest.fn(),
-      warn: mockLoggerWarn,
-      error: jest.fn(),
-    };
-  },
+  createLogger: () => ({
+    info: jest.fn(),
+    debug: jest.fn(),
+    warn: mockWarn,
+    error: jest.fn(),
+  }),
 }));
 
 import { CostMonitor } from '../src/observability/cost-monitor';
@@ -35,6 +33,7 @@ describe('CostMonitor', () => {
   let monitor: CostMonitor;
 
   beforeEach(() => {
+    mockWarn.mockClear();
     monitor = new CostMonitor();
   });
 
@@ -135,7 +134,7 @@ describe('CostMonitor', () => {
     });
 
     // The logger.warn mock is captured per createLogger() call
-    expect(mockLoggerWarn).toHaveBeenCalledWith(
+    expect(mockWarn).toHaveBeenCalledWith(
       'Daily cost budget exceeded',
       expect.objectContaining({ budget: 0.005, actual: 0.01 }),
     );
