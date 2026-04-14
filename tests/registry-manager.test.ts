@@ -189,4 +189,79 @@ describe('RegistryManager', () => {
     expect(second).toHaveLength(1);
     expect(second[0]?.id).toBe('tool-c');
   });
+
+  it('removeRegistry removes the registry from the manager', () => {
+    const registry = makeMockRegistry('removable-reg');
+    manager.registerRegistry(registry);
+    expect(manager.listRegistries()).toContain('removable-reg');
+
+    const removed = manager.removeRegistry('removable-reg');
+    expect(removed).toBe(true);
+    expect(manager.listRegistries()).not.toContain('removable-reg');
+  });
+
+  it('removeRegistry returns false when the registry does not exist', () => {
+    expect(manager.removeRegistry('does-not-exist')).toBe(false);
+  });
+
+  it('getById returns the first matching tool across registries', async () => {
+    const tool = makeToolMetadata({ id: 'unique-id', name: 'unique-tool' });
+    const registry = makeMockRegistry('getbyid-reg');
+    (registry.getById as jest.Mock).mockResolvedValueOnce(tool);
+
+    manager.registerRegistry(registry);
+    const found = await manager.getById('unique-id');
+    expect(found).not.toBeNull();
+    expect(found?.id).toBe('unique-id');
+  });
+
+  it('getById returns null when no registry has the tool', async () => {
+    manager.registerRegistry(makeMockRegistry('empty-reg'));
+    const found = await manager.getById('not-there');
+    expect(found).toBeNull();
+  });
+
+  it('listAll returns merged deduplicated tools from all registries', async () => {
+    const t1 = makeToolMetadata({ id: 'a', name: 'alpha', source: 'github' });
+    const t2 = makeToolMetadata({ id: 'b', name: 'beta', source: 'official' });
+    manager.registerRegistry(makeMockRegistry('r1', [t1]));
+    manager.registerRegistry(makeMockRegistry('r2', [t2]));
+
+    const all = await manager.listAll();
+    const ids = all.map((t) => t.id);
+    expect(ids).toContain('a');
+    expect(ids).toContain('b');
+  });
+
+  it('discoverForCapability returns tools matching the requested capability', async () => {
+    const chatTool = makeToolMetadata({
+      id: 'chat-tool',
+      name: 'chat-tool',
+      capabilities: ['chat'],
+      tags: ['messaging'],
+    });
+    const otherTool = makeToolMetadata({
+      id: 'other',
+      name: 'other',
+      capabilities: ['translate'],
+      tags: [],
+    });
+    manager.registerRegistry(makeMockRegistry('cap-reg', [chatTool, otherTool]));
+
+    const results = await manager.discoverForCapability('chat');
+    expect(results.some((t) => t.id === 'chat-tool')).toBe(true);
+  });
+
+  it('clearCache allows re-fetching from registries on next search', async () => {
+    const tool = makeToolMetadata({ id: 'cacheable', name: 'cacheable' });
+    const registry = makeMockRegistry('cache-reg', [tool]);
+    manager.registerRegistry(registry);
+
+    await manager.search({ query: 'cacheable' });
+    manager.clearCache();
+    await manager.search({ query: 'cacheable' });
+
+    // Cache was cleared so registry is hit twice
+    expect(registry.search).toHaveBeenCalledTimes(2);
+  });
 });

@@ -25,7 +25,7 @@ try {
 }
 
 // ─────────────────────────────────────────────────────────────────
-class AuditLogger {
+export class AuditLogger {
   private readonly buffer: AuditEntry[] = [];
   private flushPromise: Promise<void> | null = null;
   private readonly enabled: boolean;

@@ -246,4 +246,188 @@ describe('Health endpoints — /health/live and /health/ready', () => {
 
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
   });
+
+  it('GET /health (combined) returns 200 and body with version when runtime is ready', () => {
+    const { runtimeManager } = require('../src/core/runtime-manager') as {
+      runtimeManager: { isInitialized: jest.Mock };
+    };
+    runtimeManager.isInitialized.mockReturnValueOnce(true);
+
+    const { healthRouter } = require('../src/api/health') as { healthRouter: import('express').Router };
+    type HLayer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (req: unknown, res: unknown) => void }> } };
+    const stack = healthRouter.stack as unknown as HLayer[];
+    const healthLayer = stack.find((l) => l.route?.path === '/' && l.route?.methods['get']);
+    expect(healthLayer).toBeDefined();
+
+    const req = makeReq();
+    const res = makeRes();
+    healthLayer!.route!.stack.forEach((s) => s.handle(req, res));
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'ok' }));
+  });
+
+  it('GET /health (combined) returns 503 when runtime is not ready', () => {
+    const { runtimeManager } = require('../src/core/runtime-manager') as {
+      runtimeManager: { isInitialized: jest.Mock };
+    };
+    runtimeManager.isInitialized.mockReturnValueOnce(false);
+
+    const { healthRouter } = require('../src/api/health') as { healthRouter: import('express').Router };
+    type HLayer = { route?: { path: string; methods: Record<string, boolean>; stack: Array<{ handle: (req: unknown, res: unknown) => void }> } };
+    const stack = healthRouter.stack as unknown as HLayer[];
+    const healthLayer = stack.find((l) => l.route?.path === '/' && l.route?.methods['get']);
+    expect(healthLayer).toBeDefined();
+
+    const req = makeReq();
+    const res = makeRes();
+    healthLayer!.route!.stack.forEach((s) => s.handle(req, res));
+
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ status: 'degraded' }));
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// Helpers: reusable router-stack walker
+// ─────────────────────────────────────────────────────────────────
+
+type Layer = {
+  route?: {
+    path: string;
+    methods: Record<string, boolean>;
+    stack: Array<{ handle: (req: unknown, res: unknown, next?: jest.Mock) => void }>;
+  };
+};
+
+function invokeRoute(
+  router: import('express').Router,
+  method: 'get' | 'delete' | 'post',
+  path: string,
+  req: ReturnType<typeof makeReq>,
+  res: ReturnType<typeof makeRes>,
+): void {
+  const stack = router.stack as unknown as Layer[];
+  const layer = stack.find((l) => l.route?.path === path && l.route?.methods[method]);
+  expect(layer).toBeDefined();
+  layer!.route!.stack.forEach((s) => s.handle(req, res, jest.fn()));
+}
+
+describe('Admin API — DELETE /admin/capabilities/:id', () => {
+  it('returns 200 and confirms deregistration for a known capability ID', () => {
+    const { runtimeManager } = require('../src/core/runtime-manager') as {
+      runtimeManager: { deregisterCapability: jest.Mock };
+    };
+    runtimeManager.deregisterCapability.mockReturnValueOnce(true);
+
+    const req = makeReq({ params: { id: 'known-tool' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'delete', '/capabilities/:id', req, res);
+
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('known-tool') as string }),
+    );
+  });
+
+  it('returns 404 when capability is not found', () => {
+    const { runtimeManager } = require('../src/core/runtime-manager') as {
+      runtimeManager: { deregisterCapability: jest.Mock };
+    };
+    runtimeManager.deregisterCapability.mockReturnValueOnce(false);
+
+    const req = makeReq({ params: { id: 'missing-tool' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'delete', '/capabilities/:id', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+  });
+
+  it('returns 400 when capability ID is empty string', () => {
+    const req = makeReq({ params: { id: '' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'delete', '/capabilities/:id', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Invalid capability ID' }));
+  });
+});
+
+describe('Admin API — GET /admin/policies', () => {
+  it('returns policies array and count', () => {
+    const req = makeReq();
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/policies', req, res);
+
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ policies: expect.any(Array) as unknown[], count: expect.any(Number) as number }),
+    );
+  });
+});
+
+describe('Admin API — GET /admin/costs', () => {
+  it('returns cost summary with default 24h window', () => {
+    const req = makeReq({ query: {} });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/costs', req, res);
+
+    const body = res._body as Record<string, unknown>;
+    expect(body['window']).toBe('24h');
+    expect(body['totalCostUsd']).toBe(0);
+  });
+
+  it('returns cost summary with a custom window', () => {
+    const req = makeReq({ query: { windowHours: '48' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/costs', req, res);
+
+    const body = res._body as Record<string, unknown>;
+    expect(body['window']).toBe('48h');
+  });
+
+  it('returns 400 for invalid windowHours', () => {
+    const req = makeReq({ query: { windowHours: '999' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/costs', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+});
+
+describe('Admin API — GET /admin/audit', () => {
+  it('returns entries array with default pagination', () => {
+    const req = makeReq({ query: {} });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/audit', req, res);
+
+    const body = res._body as Record<string, unknown>;
+    expect(body['entries']).toEqual([]);
+    expect(body['limit']).toBe(50);
+    expect(body['offset']).toBe(0);
+  });
+
+  it('returns entries with custom limit and offset', () => {
+    const req = makeReq({ query: { limit: '10', offset: '20' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/audit', req, res);
+
+    const body = res._body as Record<string, unknown>;
+    expect(body['limit']).toBe(10);
+    expect(body['offset']).toBe(20);
+  });
+
+  it('returns 400 for limit > 500', () => {
+    const req = makeReq({ query: { limit: '501' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/audit', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('filters by action when provided', () => {
+    const req = makeReq({ query: { action: 'tool.install' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/audit', req, res);
+
+    const body = res._body as Record<string, unknown>;
+    expect(body['action']).toBe('tool.install');
+  });
 });
