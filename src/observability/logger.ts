@@ -85,19 +85,22 @@ const productionTransports = [
   }),
 ];
 
+// Determine if we should use colorized output (TTY + development)
+const useColorizedOutput = nodeEnv !== 'production' && process.stdout.isTTY;
+
 const consoleTransport = new transports.Console({
   format:
-    nodeEnv === 'production'
-      ? format.combine(redactFormat(), format.timestamp(), format.json())
-      : format.combine(
+    useColorizedOutput
+      ? format.combine(
           redactFormat(),
-          format.colorize(),
+          format.colorize({ all: true }),
           format.timestamp({ format: 'HH:mm:ss' }),
           format.printf(({ timestamp, level, message, module: mod, ...rest }) => {
             const meta = Object.keys(rest).length > 0 ? ` ${JSON.stringify(rest)}` : '';
             return `${String(timestamp)} [${String(mod ?? 'app')}] ${level}: ${String(message)}${meta}`;
           }),
-        ),
+        )
+      : format.combine(redactFormat(), format.timestamp(), format.json()),
 });
 
 const rootLogger = winstonCreateLogger({
