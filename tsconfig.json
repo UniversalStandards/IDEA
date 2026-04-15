@@ -39,6 +39,9 @@
       "@normalization/*": ["./src/normalization/*"],
       "@adapters/*": ["./src/adapters/*"],
       "@api/*": ["./src/api/*"],
+      // Custom type stubs for @modelcontextprotocol/sdk server modules.
+      // The MCP SDK ships a very large types.d.ts (382KB+) that causes ts-language-server
+      // to hang. These lightweight stubs expose only the public API surfaces we consume.
       "@modelcontextprotocol/sdk/server/mcp.js": ["./src/types/stubs/mcp-server.d.ts"],
       "@modelcontextprotocol/sdk/server/stdio.js": ["./src/types/stubs/mcp-stdio.d.ts"],
       "@modelcontextprotocol/sdk/server/sse.js": ["./src/types/stubs/mcp-sse.d.ts"]

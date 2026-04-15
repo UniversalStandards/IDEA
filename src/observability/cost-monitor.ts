@@ -74,7 +74,7 @@ export class CostMonitor {
    */
   getCostSummary(windowMs: number): CostSummary {
     const cutoff = new Date(Date.now() - windowMs);
-    const windowEvents = this.events.filter((e) => e.timestamp > cutoff);
+    const windowEvents = this.events.filter((e) => e.timestamp >= cutoff);
 
     const byProvider: Record<string, number> = {};
     const byModel: Record<string, number> = {};

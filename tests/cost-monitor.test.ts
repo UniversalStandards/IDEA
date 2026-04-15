@@ -75,9 +75,15 @@ describe('CostMonitor', () => {
   });
 
   it('returns empty summary when no events fall within window', () => {
-    // Push an event, then query with 0ms window (nothing in range)
+    // Push an event with a timestamp in the past (before our query window starts)
     monitor.record({ provider: 'openai', model: 'gpt-4', inputTokens: 100, outputTokens: 50, costUsd: 0.01, requestId: 'r1' });
-    const summary = monitor.getCostSummary(0);
+    // Use a very small future-only window: 0ms means cutoff = now, so past events excluded
+    // Directly override the timestamp to simulate an old event
+    const events = (monitor as unknown as { events: Array<{ timestamp: Date }> }).events;
+    events[0]!.timestamp = new Date(Date.now() - 10_000); // 10 seconds in the past
+
+    // Query with a 1ms window — old event (10s ago) should be excluded
+    const summary = monitor.getCostSummary(1);
     expect(summary.requestCount).toBe(0);
     expect(summary.totalCostUsd).toBe(0);
   });
