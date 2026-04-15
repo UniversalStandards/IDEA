@@ -15,18 +15,18 @@ const boolEnv = (defaultVal: boolean): z.ZodEffects<z.ZodOptional<z.ZodString>, 
       return v.toLowerCase() !== 'false' && v !== '0';
     });
 
-const intEnv = (defaultVal: number, min = 0, max = Number.MAX_SAFE_INTEGER) =>
+const intEnv = (defaultVal: number, min = 0, max = Number.MAX_SAFE_INTEGER): z.ZodType<number, z.ZodTypeDef, string | undefined> =>
   z
     .string()
     .optional()
-    .transform((v) => (v !== undefined && v !== '' ? parseInt(v, 10) : defaultVal))
+    .transform((v): number => (v !== undefined && v !== '' ? parseInt(v, 10) : defaultVal))
     .pipe(z.number().int().min(min).max(max));
 
-const floatEnv = (defaultVal: number, min = 0) =>
+const floatEnv = (defaultVal: number, min = 0): z.ZodType<number, z.ZodTypeDef, string | undefined> =>
   z
     .string()
     .optional()
-    .transform((v) => (v !== undefined && v !== '' ? parseFloat(v) : defaultVal))
+    .transform((v): number => (v !== undefined && v !== '' ? parseFloat(v) : defaultVal))
     .pipe(z.number().min(min));
 
 const ConfigSchema = z.object({
@@ -146,15 +146,13 @@ export function validateConfig(): Config {
 }
 
 export function getConfig(): Config {
-  if (!_config) {
-    _config = validateConfig();
-  }
+  _config ??= validateConfig();
   return _config;
 }
 
 /** Lazy proxy — reads from validated config on first access. */
 export const config = new Proxy({} as Config, {
-  get(_target, prop) {
+  get(_target, prop): Config[keyof Config] {
     return getConfig()[prop as keyof Config];
   },
 });

@@ -33,7 +33,7 @@ type FactorEvaluator = (tool: ToolMetadata) => Omit<TrustFactor, 'name'>;
 const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   {
     name: 'source',
-    evaluator: (tool) => {
+    evaluator: (tool): Omit<TrustFactor, 'name'> => {
       const scoreMap: Record<ToolMetadata['source'], number> = {
         official_registry: 100,
         enterprise: 85,
@@ -51,7 +51,7 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'signature',
-    evaluator: (tool) => {
+    evaluator: (tool): Omit<TrustFactor, 'name'> => {
       if (tool.signatureValid === true) {
         return { weight: 0.25, score: 100, reason: 'Package signature is valid' };
       }
@@ -63,7 +63,7 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'version_stability',
-    evaluator: (tool) => {
+    evaluator: (tool): Omit<TrustFactor, 'name'> => {
       const semverRegex = /^(\d+)\.(\d+)\.(\d+)/;
       const match = semverRegex.exec(tool.version);
       if (!match) return { weight: 0.15, score: 10, reason: 'Non-semver version string' };
@@ -79,7 +79,7 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'popularity',
-    evaluator: (tool) => {
+    evaluator: (tool): Omit<TrustFactor, 'name'> => {
       const downloads = tool.downloadCount ?? 0;
       let score: number;
       let reason: string;
@@ -104,7 +104,7 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'vulnerabilities',
-    evaluator: (tool) => {
+    evaluator: (tool): Omit<TrustFactor, 'name'> => {
       const vulns = tool.knownVulnerabilities ?? 0;
       if (vulns === 0) {
         return { weight: 0.15, score: 100, reason: 'No known vulnerabilities' };

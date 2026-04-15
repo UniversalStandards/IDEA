@@ -189,7 +189,7 @@ export class Installer extends EventEmitter {
   constructor() {
     super();
 
-    const maxConcurrent = (() => {
+    const maxConcurrent = ((): number => {
       try {
         return config.MAX_CONCURRENT_INSTALLS;
       } catch {

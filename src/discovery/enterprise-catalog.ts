@@ -23,7 +23,7 @@ const CatalogToolSchema = z.object({
   description: z.string().default(''),
   tags: z.array(z.string()).default([]),
   packageName: z.string().optional(),
-  repositoryUrl: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
+  repositoryUrl: z.string().url().optional().or(z.literal('')).transform((v): string | undefined => v ?? undefined),
   trustScore: z.number().min(0).max(1).optional(),
   metadata: z.record(z.unknown()).default({}),
 });

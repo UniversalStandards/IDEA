@@ -93,7 +93,7 @@ export class GithubRegistry implements Registry {
   private readonly http: AxiosInstance;
 
   constructor() {
-    const ttl = (() => {
+    const ttl = ((): number => {
       try {
         return config.CACHE_TTL;
       } catch {
@@ -103,7 +103,7 @@ export class GithubRegistry implements Registry {
 
     this.cache = new NodeCache({ stdTTL: ttl, checkperiod: Math.ceil(ttl / 2) });
 
-    const token = (() => {
+    const token = ((): string | undefined => {
       try {
         return config.GITHUB_TOKEN;
       } catch {

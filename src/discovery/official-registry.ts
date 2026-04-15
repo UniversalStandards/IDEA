@@ -225,7 +225,7 @@ export class OfficialRegistry implements Registry {
   private readonly cache: NodeCache;
 
   constructor() {
-    const ttl = (() => {
+    const ttl = ((): number => {
       try {
         return config.CACHE_TTL;
       } catch {

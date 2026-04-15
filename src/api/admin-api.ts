@@ -11,6 +11,8 @@ import { createLogger } from '../observability/logger';
 import { getConfig } from '../config';
 import { runtimeManager } from '../core/runtime-manager';
 import { auditLog } from '../security/audit';
+import { costMonitor } from '../observability/cost-monitor';
+import { policyEngine } from '../policy/policy-engine';
 
 const logger = createLogger('admin-api');
 
@@ -112,12 +114,8 @@ adminRouter.delete('/capabilities/:id', (req: Request, res: Response) => {
 
 adminRouter.get('/policies', (_req: Request, res: Response) => {
   try {
-    // Policy engine integration will be wired here once policy-engine exposes getPolicies()
-    res.json({
-      policies: [],
-      count: 0,
-      message: 'Policy listing available after policy-engine is fully initialized',
-    });
+    const policies = policyEngine.listPolicies();
+    res.json({ policies, count: policies.length });
   } catch (err) {
     logger.error('Failed to retrieve policies', { err });
     res.status(500).json({ error: 'Failed to retrieve policies' });
@@ -144,16 +142,16 @@ adminRouter.get('/costs', (req: Request, res: Response) => {
   const windowMs = windowHours * 60 * 60 * 1000;
 
   try {
-    // costMonitor will be wired once src/observability/cost-monitor.ts is imported
+    const summary = costMonitor.getCostSummary(windowMs);
     res.json({
       window: `${String(windowHours)}h`,
       windowMs,
-      totalCostUsd: 0,
-      requestCount: 0,
-      byProvider: {},
-      byModel: {},
-      from: new Date(Date.now() - windowMs).toISOString(),
-      to: new Date().toISOString(),
+      totalCostUsd: summary.totalCostUsd,
+      requestCount: summary.requestCount,
+      byProvider: summary.byProvider,
+      byModel: summary.byModel,
+      from: summary.from.toISOString(),
+      to: summary.to.toISOString(),
     });
   } catch (err) {
     logger.error('Failed to retrieve cost data', { err });

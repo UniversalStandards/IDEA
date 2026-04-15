@@ -55,10 +55,9 @@ module.exports = [
       '@typescript-eslint/prefer-optional-chain': 'warn',
 
       // ── Type-aware rules (require parserOptions.project) ────
-      // Uncomment once CI confirms type-check performance is acceptable:
-      // '@typescript-eslint/no-floating-promises': 'error',
-      // '@typescript-eslint/await-thenable': 'error',
-      // '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
 
       // ── General quality ─────────────────────────────────────
       'no-console': 'error',          // Use src/observability/logger.ts

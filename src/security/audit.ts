@@ -115,7 +115,7 @@ export class AuditLogger {
     if (this.buffer.length === 0) return;
     // Prevent concurrent flush calls
     if (this.flushPromise) return this.flushPromise;
-    this.flushPromise = (async () => {
+    this.flushPromise = (async (): Promise<void> => {
       const entries = this.buffer.splice(0);
       for (const entry of entries) {
         await this.writeLine(entry);
