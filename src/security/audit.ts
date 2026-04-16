@@ -4,7 +4,7 @@
  * Every significant action produces a signed audit entry written to audit.jsonl.
  */
 
-import { appendFile } from 'fs/promises';
+import { appendFile, mkdir } from 'fs/promises';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
@@ -73,6 +73,25 @@ class AuditLogger {
     void this.writeLine(signedEntry);
   }
 
+  log(entry: {
+    actor: string;
+    action: string;
+    resource: string;
+    outcome: 'success' | 'failure' | 'pending' | 'denied';
+    correlationId?: string;
+    metadata?: Record<string, unknown>;
+  }): void {
+    const normalizedOutcome = entry.outcome === 'denied' ? 'failure' : entry.outcome;
+    this.record(
+      entry.action,
+      entry.actor,
+      entry.resource,
+      normalizedOutcome,
+      entry.correlationId,
+      entry.metadata ?? {},
+    );
+  }
+
   /**
    * Flush all buffered entries to disk.
    * Should be called during graceful shutdown.
@@ -81,7 +100,7 @@ class AuditLogger {
     if (this.buffer.length === 0) return;
     // Prevent concurrent flush calls
     if (this.flushPromise) return this.flushPromise;
-    this.flushPromise = (async () => {
+    this.flushPromise = (async (): Promise<void> => {
       const entries = this.buffer.splice(0);
       for (const entry of entries) {
         await this.writeLine(entry);
@@ -104,6 +123,7 @@ class AuditLogger {
   private async writeLine(entry: AuditEntry): Promise<void> {
     if (process.env['NODE_ENV'] === 'test') return;
     try {
+      await mkdir(path.dirname(AUDIT_LOG_PATH), { recursive: true });
       await appendFile(AUDIT_LOG_PATH, JSON.stringify(entry) + '\n', 'utf8');
     } catch (err) {
       logger.warn('Failed to write audit entry to disk', {
@@ -116,3 +136,4 @@ class AuditLogger {
 // ─────────────────────────────────────────────────────────────────
 
 export const auditLog = new AuditLogger();
+export const auditLogger = auditLog;
