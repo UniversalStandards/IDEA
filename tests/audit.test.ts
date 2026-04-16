@@ -48,6 +48,7 @@ describe('audit logger compatibility', () => {
       metadata: { reason: 'blocked' },
     });
 
+    expect(appendFile).not.toHaveBeenCalled();
     await auditLog.flush();
 
     expect(mkdir).toHaveBeenCalledWith(expect.stringMatching(/runtime$/), { recursive: true });
@@ -55,4 +56,21 @@ describe('audit logger compatibility', () => {
     const payload = String((appendFile as jest.Mock).mock.calls[0]?.[1] ?? '');
     expect(payload).toContain('"outcome":"failure"');
   });
+
+  it.each(['success', 'failure', 'pending'] as const)(
+    'passes through legacy outcome "%s" without remapping',
+    async (outcome) => {
+      auditLogger.log({
+        actor: 'user',
+        action: 'policy.check',
+        resource: 'tool-x',
+        outcome,
+      });
+
+      await auditLog.flush();
+
+      const payload = String((appendFile as jest.Mock).mock.calls[0]?.[1] ?? '');
+      expect(payload).toContain(`"outcome":"${outcome}"`);
+    },
+  );
 });

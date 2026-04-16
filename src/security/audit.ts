@@ -81,6 +81,7 @@ class AuditLogger {
     correlationId?: string;
     metadata?: Record<string, unknown>;
   }): void {
+    // Legacy callers used `denied`; canonical audit outcome is `failure`.
     const normalizedOutcome = entry.outcome === 'denied' ? 'failure' : entry.outcome;
     this.record(
       entry.action,
