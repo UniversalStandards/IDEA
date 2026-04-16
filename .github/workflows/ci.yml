@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -160,6 +163,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [frontend-build, build]
     if: github.event_name == 'pull_request' && github.base_ref == 'main' && hashFiles('web/package.json') != ''
+    env:
+      FRONTEND_PORT: '3000'
+      BACKEND_PORT: '8080'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -186,18 +192,31 @@ jobs:
         working-directory: web
 
       - name: Start backend
-        run: npm run dev > /tmp/backend.log 2>&1 & echo $! > /tmp/backend.pid
+        run: PORT="$BACKEND_PORT" npm run dev > /tmp/backend.log 2>&1 & echo $! > /tmp/backend.pid
 
       - name: Start frontend
-        run: npm run start -- --port 3000 > /tmp/frontend.log 2>&1 & echo $! > /tmp/frontend.pid
+        run: npm run start -- --port "$FRONTEND_PORT" > /tmp/frontend.log 2>&1 & echo $! > /tmp/frontend.pid
         working-directory: web
 
       - name: Wait for services
         run: |
           for i in {1..60}; do
-            if curl -fsS http://localhost:3000 >/dev/null && curl -fsS http://localhost:8080/health >/dev/null; then
+            frontend_ready=false
+            backend_ready=false
+
+            if curl -fsS "http://localhost:${FRONTEND_PORT}" >/dev/null; then
+              frontend_ready=true
+            fi
+
+            if curl -fsS "http://localhost:${BACKEND_PORT}/health" >/dev/null; then
+              backend_ready=true
+            fi
+
+            if [ "$frontend_ready" = "true" ] && [ "$backend_ready" = "true" ]; then
               exit 0
             fi
+
+            echo "Waiting for services... frontend_ready=${frontend_ready} backend_ready=${backend_ready}"
             sleep 2
           done
           echo "Services did not become ready" >&2
@@ -207,6 +226,17 @@ jobs:
         run: npx playwright test
         working-directory: web
 
+      - name: Upload E2E service logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-e2e-service-logs
+          path: |
+            /tmp/backend.log
+            /tmp/frontend.log
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4
@@ -215,3 +245,13 @@ jobs:
           path: web/playwright-report/
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Stop services
+        if: always()
+        run: |
+          if [ -f /tmp/frontend.pid ]; then
+            kill "$(cat /tmp/frontend.pid)" || true
+          fi
+          if [ -f /tmp/backend.pid ]; then
+            kill "$(cat /tmp/backend.pid)" || true
+          fi

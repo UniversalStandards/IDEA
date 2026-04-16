@@ -17,7 +17,7 @@ jobs:
   deploy-frontend:
     name: Deploy frontend to Vercel
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' && hashFiles('web/package.json') != '' && secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != ''
+    if: github.event.workflow_run.conclusion == 'success' && hashFiles('web/package.json') != ''
     outputs:
       frontend_url: ${{ steps.deploy.outputs.url }}
     steps:
@@ -35,8 +35,23 @@ jobs:
         run: npm ci
         working-directory: web
 
+      - name: Check frontend deploy configuration
+        id: frontend-config
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping frontend deployment: Vercel secrets are not fully configured."
+          fi
+
       - name: Deploy to Vercel production
         id: deploy
+        if: steps.frontend-config.outputs.enabled == 'true'
         working-directory: web
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -47,16 +62,24 @@ jobs:
           npx vercel build --prod --token "$VERCEL_TOKEN"
           DEPLOY_OUTPUT="$(npx vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN")"
           DEPLOY_URL="$(echo "$DEPLOY_OUTPUT" | tail -n 1)"
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "Failed to determine production deployment URL." >&2
+            exit 1
+          fi
           case "$DEPLOY_URL" in
             http*) ;;
-            *) DEPLOY_URL="https://$DEPLOY_URL" ;;
+            *.vercel.app) DEPLOY_URL="https://$DEPLOY_URL" ;;
+            *)
+              echo "Unexpected production deployment URL output: $DEPLOY_URL" >&2
+              exit 1
+              ;;
           esac
           echo "url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
 
   deploy-backend:
     name: Deploy backend
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' && secrets.BACKEND_DEPLOY_COMMAND != '' && secrets.DATABASE_URL != '' && secrets.JWT_SECRET != '' && secrets.ENCRYPTION_KEY != ''
+    if: github.event.workflow_run.conclusion == 'success'
     outputs:
       backend_url: ${{ steps.backend-url.outputs.url }}
     env:
@@ -79,8 +102,50 @@ jobs:
       - name: Build backend
         run: npm run build
 
-      - name: Deploy backend using configured command
-        run: ${{ secrets.BACKEND_DEPLOY_COMMAND }}
+      - name: Check backend deploy configuration
+        id: backend-config
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+        run: |
+          if [ -n "$FLY_API_TOKEN" ] && [ -f "fly.toml" ] && [ -n "$DATABASE_URL" ] && [ -n "$JWT_SECRET" ] && [ -n "$ENCRYPTION_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "provider=fly" >> "$GITHUB_OUTPUT"
+          elif [ -n "$RAILWAY_TOKEN" ] && [ -n "$RAILWAY_PROJECT_ID" ] && [ -n "$DATABASE_URL" ] && [ -n "$JWT_SECRET" ] && [ -n "$ENCRYPTION_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "provider=railway" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "provider=none" >> "$GITHUB_OUTPUT"
+            echo "Skipping backend deployment: configure Fly.io (FLY_API_TOKEN + fly.toml) or Railway (RAILWAY_TOKEN + RAILWAY_PROJECT_ID) with backend secrets."
+          fi
+
+      - name: Set up Fly.io CLI
+        if: steps.backend-config.outputs.provider == 'fly'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy backend to Fly.io
+        if: steps.backend-config.outputs.provider == 'fly'
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only
+
+      - name: Install Railway CLI
+        if: steps.backend-config.outputs.provider == 'railway'
+        run: npm install -g @railway/cli
+
+      - name: Deploy backend to Railway
+        if: steps.backend-config.outputs.provider == 'railway'
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
+        run: railway up --detach
 
       - name: Set backend URL output
         id: backend-url
