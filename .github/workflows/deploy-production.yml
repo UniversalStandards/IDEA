@@ -1,0 +1,106 @@
+name: Deploy Production
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy-frontend:
+    name: Deploy frontend to Vercel
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' && hashFiles('web/package.json') != '' && secrets.VERCEL_TOKEN != '' && secrets.VERCEL_ORG_ID != '' && secrets.VERCEL_PROJECT_ID != ''
+    outputs:
+      frontend_url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Deploy to Vercel production
+        id: deploy
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          npx vercel build --prod --token "$VERCEL_TOKEN"
+          DEPLOY_OUTPUT="$(npx vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN")"
+          DEPLOY_URL="$(echo "$DEPLOY_OUTPUT" | tail -n 1)"
+          case "$DEPLOY_URL" in
+            http*) ;;
+            *) DEPLOY_URL="https://$DEPLOY_URL" ;;
+          esac
+          echo "url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+
+  deploy-backend:
+    name: Deploy backend
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' && secrets.BACKEND_DEPLOY_COMMAND != '' && secrets.DATABASE_URL != '' && secrets.JWT_SECRET != '' && secrets.ENCRYPTION_KEY != ''
+    outputs:
+      backend_url: ${{ steps.backend-url.outputs.url }}
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Build backend
+        run: npm run build
+
+      - name: Deploy backend using configured command
+        run: ${{ secrets.BACKEND_DEPLOY_COMMAND }}
+
+      - name: Set backend URL output
+        id: backend-url
+        run: |
+          if [ -n "${{ secrets.PRODUCTION_BACKEND_URL }}" ]; then
+            echo "url=${{ secrets.PRODUCTION_BACKEND_URL }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "url=" >> "$GITHUB_OUTPUT"
+          fi
+
+  smoke-test:
+    name: Production smoke tests
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend, deploy-backend]
+    if: always()
+    steps:
+      - name: Verify frontend deployment
+        if: ${{ needs.deploy-frontend.result == 'success' && needs.deploy-frontend.outputs.frontend_url != '' }}
+        run: curl -fsS "${{ needs.deploy-frontend.outputs.frontend_url }}"
+
+      - name: Verify backend deployment
+        if: ${{ needs.deploy-backend.result == 'success' && needs.deploy-backend.outputs.backend_url != '' }}
+        run: curl -fsS "${{ needs.deploy-backend.outputs.backend_url }}/health"
