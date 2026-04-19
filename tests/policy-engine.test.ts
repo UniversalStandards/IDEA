@@ -215,4 +215,184 @@ describe('PolicyEngine', () => {
     // Should not throw
     expect(() => engine.stopWatcher()).not.toThrow();
   });
+
+  it('evaluate handles rule condition that throws without crashing', () => {
+    engine.addPolicy({
+      id: 'throwing-rule',
+      name: 'Throwing rule',
+      priority: 200,
+      enabled: true,
+      rules: [
+        {
+          condition: () => {
+            throw new Error('condition blew up');
+          },
+          action: 'deny',
+          reason: 'Should be skipped',
+        },
+      ],
+    });
+    // Should not throw — the rule is skipped, evaluation continues
+    expect(() => engine.evaluate(makeContext())).not.toThrow();
+    engine.removePolicy('throwing-rule');
+  });
+
+  it('require_approval action is reflected in decision', () => {
+    for (const p of engine.listPolicies()) engine.removePolicy(p.id);
+    engine.addPolicy({
+      id: 'approval-rule',
+      name: 'Approval required',
+      priority: 100,
+      enabled: true,
+      rules: [
+        {
+          condition: () => true,
+          action: 'require_approval',
+          reason: 'Needs human approval',
+        },
+      ],
+    });
+    engine.addPolicy({
+      id: 'allow-too',
+      name: 'Also allow',
+      priority: 50,
+      enabled: true,
+      rules: [{ condition: () => true, action: 'allow', reason: 'Also allowed' }],
+    });
+    const decision = engine.evaluate(makeContext());
+    expect(decision.requiresApproval).toBe(true);
+    expect(decision.reasons.some((r) => r.includes('Needs human approval'))).toBe(true);
+  });
+
+  it('log action is recorded in reasons but does not affect allow/deny', () => {
+    for (const p of engine.listPolicies()) engine.removePolicy(p.id);
+    engine.addPolicy({
+      id: 'log-rule',
+      name: 'Log rule',
+      priority: 100,
+      enabled: true,
+      rules: [{ condition: () => true, action: 'log', reason: 'Just logging' }],
+    });
+    engine.addPolicy({
+      id: 'allow-rule',
+      name: 'Allow rule',
+      priority: 50,
+      enabled: true,
+      rules: [{ condition: () => true, action: 'allow', reason: 'Allow' }],
+    });
+    const decision = engine.evaluate(makeContext());
+    expect(decision.allowed).toBe(true);
+    expect(decision.reasons.some((r) => r.includes('Just logging'))).toBe(true);
+  });
+
+  it('default deny applies when no explicit allow or deny rule matches', () => {
+    for (const p of engine.listPolicies()) engine.removePolicy(p.id);
+    // No policies at all → default deny
+    const decision = engine.evaluate(makeContext());
+    expect(decision.allowed).toBe(false);
+    expect(decision.reasons.some((r) => r.includes('default deny'))).toBe(true);
+  });
+
+  it('explainDecision returns "Action permitted" when no allow entry found', () => {
+    for (const p of engine.listPolicies()) engine.removePolicy(p.id);
+    // Add a log rule + allow rule with no explicit [ALLOW] text matching
+    engine.addPolicy({
+      id: 'pure-allow',
+      name: 'Pure allow',
+      priority: 10,
+      enabled: true,
+      rules: [{ condition: () => true, action: 'allow', reason: 'Permitted' }],
+    });
+    const explanation = engine.explainDecision(makeContext());
+    expect(explanation.allowed).toBe(true);
+    expect(explanation.reason).toBeTruthy();
+  });
+
+  it('explainDecision returns reason about approval when requiresApproval and allowed', () => {
+    for (const p of engine.listPolicies()) engine.removePolicy(p.id);
+    engine.addPolicy({
+      id: 'req-approval',
+      name: 'Req approval',
+      priority: 100,
+      enabled: true,
+      rules: [{ condition: () => true, action: 'require_approval', reason: 'Need approval' }],
+    });
+    engine.addPolicy({
+      id: 'also-allow',
+      name: 'Also allow',
+      priority: 50,
+      enabled: true,
+      rules: [{ condition: () => true, action: 'allow', reason: 'Allow' }],
+    });
+    const explanation = engine.explainDecision(makeContext());
+    expect(explanation.allowed).toBe(true);
+    expect(explanation.decision.requiresApproval).toBe(true);
+    expect(explanation.reason).toContain('approval');
+  });
+
+  it('explainDecision returns generic deny reason when no [DENY] entry found', () => {
+    for (const p of engine.listPolicies()) engine.removePolicy(p.id);
+    // No policies → default deny reason added internally
+    const explanation = engine.explainDecision(makeContext());
+    expect(explanation.allowed).toBe(false);
+    expect(explanation.reason).toBeTruthy();
+  });
+
+  it('loadPoliciesFromDir skips non-JSON files', async () => {
+    const { mkdirSync, writeFileSync, rmSync } = require('fs') as typeof import('fs');
+    const tmpDir = '/tmp/test-policy-skip';
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(`${tmpDir}/readme.txt`, 'not json');
+    const countBefore = engine.listPolicies().length;
+    await engine.loadPoliciesFromDir(tmpDir);
+    expect(engine.listPolicies().length).toEqual(countBefore);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loadPoliciesFromDir skips invalid JSON files', async () => {
+    const { mkdirSync, writeFileSync, rmSync } = require('fs') as typeof import('fs');
+    const tmpDir = '/tmp/test-policy-bad-json';
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(`${tmpDir}/broken.json`, '{ not valid json }');
+    const countBefore = engine.listPolicies().length;
+    await engine.loadPoliciesFromDir(tmpDir);
+    expect(engine.listPolicies().length).toEqual(countBefore);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loadPoliciesFromDir skips policy packs that fail schema validation', async () => {
+    const { mkdirSync, writeFileSync, rmSync } = require('fs') as typeof import('fs');
+    const tmpDir = '/tmp/test-policy-invalid-schema';
+    mkdirSync(tmpDir, { recursive: true });
+    // Missing required 'name' field
+    writeFileSync(`${tmpDir}/invalid.json`, JSON.stringify({ rules: [] }));
+    const countBefore = engine.listPolicies().length;
+    await engine.loadPoliciesFromDir(tmpDir);
+    expect(engine.listPolicies().length).toEqual(countBefore);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('loadPoliciesFromDir removes old pack policies before reloading', async () => {
+    const { mkdirSync, writeFileSync, rmSync } = require('fs') as typeof import('fs');
+    const tmpDir = '/tmp/test-policy-reload';
+    mkdirSync(tmpDir, { recursive: true });
+
+    const pack = {
+      name: 'reload-pack',
+      rules: [
+        { id: 'r1', description: 'Rule 1', conditions: {}, effect: 'allow' },
+      ],
+    };
+    writeFileSync(`${tmpDir}/pack.json`, JSON.stringify(pack));
+
+    await engine.loadPoliciesFromDir(tmpDir);
+    const countAfterFirst = engine.listPolicies().filter((p) => p.id.startsWith('pack:')).length;
+
+    // Load again — should not double-add
+    await engine.loadPoliciesFromDir(tmpDir);
+    const countAfterSecond = engine.listPolicies().filter((p) => p.id.startsWith('pack:')).length;
+
+    expect(countAfterSecond).toEqual(countAfterFirst);
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
 });

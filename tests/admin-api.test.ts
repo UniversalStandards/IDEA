@@ -22,7 +22,10 @@ jest.mock('../src/observability/logger', () => ({
 }));
 
 jest.mock('../src/security/audit', () => ({
-  auditLog: { record: jest.fn() },
+  auditLog: {
+    record: jest.fn(),
+    getRecentEntries: jest.fn().mockReturnValue({ entries: [], total: 0 }),
+  },
 }));
 
 jest.mock('../src/core/runtime-manager', () => ({

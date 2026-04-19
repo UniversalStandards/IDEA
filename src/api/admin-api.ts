@@ -180,13 +180,14 @@ adminRouter.get('/audit', (req: Request, res: Response) => {
   const { limit, offset, action } = parsed.data;
 
   try {
+    const { entries, total } = auditLog.getRecentEntries(limit, offset, action);
     res.json({
-      entries: [],
+      entries,
       limit,
       offset,
       action: action ?? null,
-      total: 0,
-      message: 'Audit entries available when ENABLE_AUDIT_LOGGING=true and after runtime initialization',
+      total,
+      note: 'In-memory entries since process start. Historical entries are persisted to runtime/audit.jsonl.',
     });
   } catch (err) {
     logger.error('Failed to retrieve audit entries', { err });

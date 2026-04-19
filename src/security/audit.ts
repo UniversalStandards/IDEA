@@ -108,6 +108,27 @@ export class AuditLogger {
   }
 
   /**
+   * Returns the most recent in-memory audit entries (newest first).
+   * Useful for the admin API.  Entries are only kept in-memory since process
+   * start; historical entries written to audit.jsonl are not read back here.
+   *
+   * @param limit   Maximum number of entries to return (default: 50)
+   * @param offset  Number of entries to skip from the beginning (default: 0)
+   * @param action  Optional action filter (substring match)
+   */
+  getRecentEntries(limit = 50, offset = 0, action?: string): { entries: AuditEntry[]; total: number } {
+    let filtered = action !== undefined && action.length > 0
+      ? this.buffer.filter((e) => e.action.includes(action))
+      : [...this.buffer];
+
+    // newest first
+    filtered = filtered.slice().reverse();
+    const total = filtered.length;
+    const entries = filtered.slice(offset, offset + limit);
+    return { entries, total };
+  }
+
+  /**
    * Flush all buffered entries to disk.
    * Should be called during graceful shutdown.
    */

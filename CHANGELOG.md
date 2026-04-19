@@ -10,6 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `src/types/errors.ts` — 18 domain-specific error classes extending `McpHubError` (ConfigurationError, PolicyDeniedError, InstallationError, CircuitBreakerOpenError, WorkflowStepError, NormalizationError, AdapterError, InsufficientTrustError, and more)
+- `AuditLogger.getRecentEntries()` — paginated in-memory audit entry retrieval
+- `GET /admin/audit` now returns real in-memory audit entries with pagination and action filter
+- `tests/errors.test.ts` — 100% coverage of all error classes
+- Expanded `tests/schema-reconciler.test.ts` — +25 tests covering all coerce paths (array, object, null, integer, boolean variants), nested recursion, JSON-string input, and constraint validation (minLength, maxLength)
+- Expanded `tests/trust-evaluator.test.ts` — +18 tests covering all source types, all download count brackets, pre-1.0 minor versions, signature unchecked path, custom factor override/replace/remove, error-throwing evaluator, factor score clamping, zero-factor edge case
+- Expanded `tests/policy-engine.test.ts` — +12 tests covering `loadPoliciesFromDir` (non-JSON skipped, invalid JSON skipped, invalid pack schema skipped, reload deduplication), `require_approval` action, `log` action, condition-throwing error safety, default deny path, `explainDecision` with approval/fallback reasons
+- Expanded `tests/installer.test.ts` — +9 tests covering `isInstalled`, `getInstallResult`, `listInstalled`, `uninstall` (not-installed throws), event emission (`installed`, `install:failed`), lock acquisition/release, non-EEXIST lock error propagation
+
+### Fixed
+- Logger `format.colorize()` now guarded on `process.stdout.isTTY` — prevents crash in Docker / non-TTY environments
+
+### Changed
+- `AGENTS.md` - `src/types/errors.ts` item now implemented
+
+### Added
 - `AGENTS.md` — AI coding agent instruction manifest
 - GitHub Actions CI, CodeQL, Release, Dependency Review workflows (see Issue #2 for content)
 - `.github/dependabot.yml` — weekly automated dependency updates

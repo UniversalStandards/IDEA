@@ -253,4 +253,123 @@ describe('Installer', () => {
     // rollback calls fsp.rm
     expect(fsp['rm']).toHaveBeenCalled();
   });
+
+  it('isInstalled returns false for a tool only run via dry-run', async () => {
+    const tool = makeTool({ id: 'tool-abc' });
+    // dry-run validates but does not persist to installed map
+    await installer.install(tool, { dryRun: true });
+    expect(installer.isInstalled('tool-abc')).toBe(false);
+  });
+
+  it('getInstallResult returns undefined for unknown tool', () => {
+    expect(installer.getInstallResult('unknown-tool')).toBeUndefined();
+  });
+
+  it('getInstallResult returns undefined for a dry-run (no state persisted)', async () => {
+    const tool = makeTool({ id: 'tool-res' });
+    await installer.install(tool, { dryRun: true });
+    // dry-run does not persist to installed map
+    expect(installer.getInstallResult('tool-res')).toBeUndefined();
+  });
+
+  it('listInstalled returns empty array initially', () => {
+    expect(installer.listInstalled()).toEqual([]);
+  });
+
+  it('uninstall throws when tool is not installed', async () => {
+    await expect(installer.uninstall('not-installed-tool')).rejects.toThrow(/not installed/i);
+  });
+
+  it('emits "install:stage" event during dry-run', async () => {
+    const tool = makeTool({ id: 'emit-tool' });
+    const stages: string[] = [];
+    installer.on('install:stage', ({ stage }: { stage: string }) => stages.push(stage));
+    await installer.install(tool, { dryRun: true });
+    expect(stages).toContain('dry-run-complete');
+  });
+
+  it('emits "failed" event on policy denial', async () => {
+    const { policyEngine } = require('../src/policy/policy-engine') as {
+      policyEngine: { evaluate: jest.Mock };
+    };
+    policyEngine.evaluate.mockReturnValue({ allowed: false, requiresApproval: false, reasons: ['blocked'] });
+
+    const tool = makeTool({ id: 'fail-tool' });
+    const listener = jest.fn();
+    installer.on('failed', listener);
+    await installer.install(tool, { dryRun: true });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks are acquired and released during normal install', async () => {
+    const tool = makeTool({ id: 'lock-tool' });
+    await installer.install(tool, { dryRun: true });
+    // writeFile called to create lock, unlink called to release it
+    expect(fsp['writeFile']).toHaveBeenCalled();
+    expect(fsp['unlink']).toHaveBeenCalled();
+  });
+
+  it('lock error that is not EEXIST propagates as failure', async () => {
+    const otherError = Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+    fsp['writeFile']!.mockRejectedValueOnce(otherError);
+
+    const tool = makeTool({ id: 'perm-tool' });
+    const result = await installer.install(tool);
+    expect(result.success).toBe(false);
+  });
+
+  it('full install (non-dry-run, no npm packages) succeeds and registers tool', async () => {
+    const tool = makeTool({ id: 'full-install-tool' });
+
+    const result = await installer.install(tool, { dryRun: false });
+
+    expect(result.success).toBe(true);
+    expect(installer.isInstalled('full-install-tool')).toBe(true);
+    expect(installer.getInstallResult('full-install-tool')).toMatchObject({ success: true });
+  });
+
+  it('uninstall removes tool from installed map when directory does not exist', async () => {
+    const tool = makeTool({ id: 'uninstall-tool' });
+
+    // First do a full install to populate the installed map
+    await installer.install(tool, { dryRun: false });
+    expect(installer.isInstalled('uninstall-tool')).toBe(true);
+
+    // directory does not exist (existsSync mocked to false), so no npm uninstall called
+    const uninstallListener = jest.fn();
+    installer.on('uninstalled', uninstallListener);
+    await installer.uninstall('uninstall-tool');
+
+    expect(installer.isInstalled('uninstall-tool')).toBe(false);
+    expect(uninstallListener).toHaveBeenCalledWith('uninstall-tool');
+  });
+
+  it('uninstall removes directory when existsSync returns true', async () => {
+    const { spawn } = require('child_process') as { spawn: jest.Mock };
+    const { EventEmitter } = require('events') as typeof import('events');
+    const fsSyncMod = require('fs') as { existsSync: jest.Mock };
+
+    const tool = makeTool({ id: 'uninstall-dir-tool' });
+
+    // Full install first
+    await installer.install(tool, { dryRun: false });
+
+    // Make existsSync return true for directory removal path
+    fsSyncMod.existsSync.mockReturnValueOnce(true);
+
+    // npm uninstall spawn succeeds
+    type MockChild = InstanceType<typeof EventEmitter> & { stdout: InstanceType<typeof EventEmitter>; stderr: InstanceType<typeof EventEmitter>; kill: jest.Mock };
+    spawn.mockImplementationOnce(() => {
+      const child = new EventEmitter() as MockChild;
+      const stdout = new EventEmitter();
+      const stderr = new EventEmitter();
+      Object.assign(child, { stdout, stderr, kill: jest.fn() });
+      process.nextTick(() => child.emit('close', 0));
+      return child;
+    });
+
+    await installer.uninstall('uninstall-dir-tool');
+    expect(installer.isInstalled('uninstall-dir-tool')).toBe(false);
+    expect(fsp['rm']).toHaveBeenCalled();
+  });
 });
