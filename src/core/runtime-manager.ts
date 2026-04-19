@@ -9,6 +9,9 @@ import { scheduler } from '../routing/scheduler';
 import { runtimeRegistrar } from '../provisioning/runtime-registrar';
 import { type NormalizedRequest } from '../normalization/request-normalizer';
 import { requestNormalizer } from '../normalization/request-normalizer';
+import { executionPlanner } from '../orchestration/execution-planner';
+import { agentRouter } from '../orchestration/agent-router';
+import { toolClientPool } from './mcp-client';
 
 const logger = createLogger('runtime-manager');
 
@@ -52,6 +55,16 @@ export class RuntimeManager {
       // Capability selector is stateless, ready
       logger.info('Capability selector ready');
 
+      // Register a default hub agent in the agent router
+      agentRouter.registerAgent({
+        agentId: 'hub:default',
+        capabilities: ['discover', 'install', 'execute', 'validate', 'approve', 'notify'],
+        priority: 10,
+        maxLoad: 50,
+        currentLoad: 0,
+      });
+      logger.info('Agent router ready', { agents: agentRouter.listAgents().length });
+
       metrics.increment('runtime_initializations_total');
       this.initialized = true;
       logger.info('Runtime manager initialized successfully');
@@ -65,6 +78,9 @@ export class RuntimeManager {
 
   async shutdown(): Promise<void> {
     logger.info('Runtime manager shutting down...');
+
+    // Close all MCP client connections before stopping processes
+    await toolClientPool.closeAll();
 
     // Stop all running tools
     const tools = runtimeRegistrar.list();
@@ -139,43 +155,36 @@ export class RuntimeManager {
     logger.debug('Handling request', { requestId: request.id, method: request.method });
 
     try {
-      // Policy check
-      const toolId = (request.params['toolId'] as string) ?? 'unknown';
-      const decision = policyEngine.evaluate({
-        toolId,
-        actor: request.clientType,
-        action: request.method,
-        environment: process.env['NODE_ENV'] ?? 'development',
-      });
-
-      if (!decision.allowed) {
-        throw new Error(`Policy denied: ${decision.reasons.join(', ')}`);
-      }
-
-      // Capability selection
+      // Capability selection to find the best tool for this request
       const availableTools = runtimeRegistrar.list();
       const selected = capabilitySelector.select(request, availableTools);
 
-      if (!selected) {
-        logger.debug('No specific tool selected for request', { requestId: request.id });
-      }
+      // Build execution context from the normalized request
+      const toolId = (request.params['toolId'] as string | undefined)
+        ?? selected?.tool.tool.id;
+      const action = (request.params['action'] as string | undefined) ?? request.method;
+      const params = request.params;
+      const requiresApproval = (request.params['requiresApproval'] as boolean | undefined) ?? false;
 
-      // Schedule and execute
+      // Build and execute a full plan through the execution planner
       const result = await scheduler.schedule(async () => {
-        const output = {
-          requestId: request.id,
-          method: request.method,
-          toolId: selected?.tool.tool.id ?? null,
-          handled: true,
-          timestamp: new Date().toISOString(),
-        };
+        const plan = await executionPlanner.plan(request.method, {
+          toolId,
+          action,
+          params,
+          actor: request.clientType,
+          requiresApproval,
+          query: request.params['query'],
+        });
+
+        const execResult = await executionPlanner.execute(plan);
 
         const latency = Date.now() - start;
         if (selected) {
-          capabilitySelector.recordOutcome(selected.tool.tool.id, true, latency);
+          capabilitySelector.recordOutcome(selected.tool.tool.id, execResult.success, latency);
         }
 
-        return requestNormalizer.denormalize(output, request.clientType);
+        return requestNormalizer.denormalize(execResult, request.clientType);
       }, 5);
 
       metrics.histogram('request_handling_duration_ms', Date.now() - start);

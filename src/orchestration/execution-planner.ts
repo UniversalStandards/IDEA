@@ -5,6 +5,8 @@ import { installer } from '../provisioning/installer';
 import { registryManager } from '../discovery/registry-manager';
 import { policyEngine } from '../policy/policy-engine';
 import { runtimeRegistrar } from '../provisioning/runtime-registrar';
+import { approvalGate } from '../policy/approval-gates';
+import { toolClientPool } from '../core/mcp-client';
 
 const logger = createLogger('execution-planner');
 
@@ -261,7 +263,13 @@ export class ExecutionPlanner {
           if (!step.toolId) throw new Error('execute step requires toolId');
           const registered = runtimeRegistrar.get(step.toolId);
           if (!registered) throw new Error(`Tool not registered: ${step.toolId}`);
-          output = { toolId: step.toolId, action: step.params?.['action'], status: 'executed' };
+
+          const toolName = (step.params?.['action'] as string | undefined) ?? step.toolId;
+          const toolArgs = (step.params?.['args'] as Record<string, unknown> | undefined) ?? {};
+          const timeoutMs = (step.params?.['timeoutMs'] as number | undefined);
+
+          const client = toolClientPool.acquire(registered);
+          output = await client.callTool(toolName, toolArgs, timeoutMs);
           break;
         }
 
@@ -280,8 +288,15 @@ export class ExecutionPlanner {
         }
 
         case 'approve': {
-          // Non-blocking approval — in a real system would wait for human approval
-          output = { approved: true, approvedBy: 'system:auto', reason: step.params?.['reason'] };
+          const requestedBy = (step.params?.['requestedBy'] as string | undefined) ?? 'system';
+          const reason = (step.params?.['reason'] as string | undefined) ?? `Approval required for plan step ${step.id}`;
+          output = await approvalGate.request(
+            step.toolId ?? 'unknown',
+            'execute',
+            requestedBy,
+            reason,
+            { stepId: step.id, params: step.params },
+          );
           break;
         }
 

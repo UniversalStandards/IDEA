@@ -8,6 +8,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
+import { randomUUID } from 'crypto';
 import type * as http from 'http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLogger } from '../observability/logger';
@@ -17,8 +18,11 @@ import { statusRouter } from '../api/status';
 import { adminRouter } from '../api/admin-api';
 import { createRestAdapter } from '../adapters/rest/index';
 import { MCPAdapter } from '../adapters/mcp/index';
+import { eventsAdapter } from '../adapters/events/index';
+import { graphqlAdapter } from '../adapters/graphql/index';
 import { runtimeManager } from './runtime-manager';
 import { lifecycle } from './lifecycle';
+import { toolClientPool } from './mcp-client';
 
 const logger = createLogger('server');
 
@@ -63,6 +67,17 @@ export class Server {
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
 
+    // ── Request-ID tracing middleware ──────────────────────────────────────
+    this.app.use((req: Request, res: Response, next: NextFunction) => {
+      const requestId =
+        (req.headers['x-request-id'] as string | undefined) ??
+        (req.headers['x-trace-id'] as string | undefined) ??
+        randomUUID();
+      res.setHeader('X-Request-ID', requestId);
+      (req as Request & { requestId: string }).requestId = requestId;
+      next();
+    });
+
     // ── Rate limiting — driven by config vars (AGENTS.md 4.2) ────────────────
     const limiter = rateLimit({
       windowMs: this.cfg.RATE_LIMIT_WINDOW_MS,
@@ -80,6 +95,15 @@ export class Server {
 
     // REST API adapter mounts its own routes onto the app
     createRestAdapter(this.app);
+
+    // ── Events adapter (webhook receiver + SSE stream) ──────────────────
+    await eventsAdapter.initialize();
+    this.app.use('/adapters/events', eventsAdapter.buildRouter());
+    logger.info('Events adapter mounted at /adapters/events');
+
+    // ── GraphQL adapter (initialize lifecycle, no Express routes needed) ─
+    await graphqlAdapter.initialize();
+    logger.info('GraphQL adapter initialized');
 
     // ── Runtime initialization ──────────────────────────────────────────
     await runtimeManager.initialize();
@@ -143,6 +167,9 @@ export class Server {
 
     // ── Lifecycle registration ───────────────────────────────────────
     lifecycle.register('runtime-manager', () => runtimeManager.shutdown());
+    lifecycle.register('events-adapter', () => eventsAdapter.shutdown());
+    lifecycle.register('graphql-adapter', () => graphqlAdapter.shutdown());
+    lifecycle.register('mcp-client-pool', () => toolClientPool.closeAll());
 
     logger.info('Server startup complete', {
       port: this.cfg.PORT,

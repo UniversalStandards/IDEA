@@ -15,6 +15,7 @@ import { type ToolMetadata } from '../discovery/types';
 import { dependencyResolver } from './dependency-resolver';
 import { configGenerator } from './config-generator';
 import { runtimeRegistrar, type RegisteredTool } from './runtime-registrar';
+import { credentialBroker } from '../security/credential-broker';
 
 const logger = createLogger('installer');
 
@@ -336,9 +337,22 @@ export class Installer extends EventEmitter {
         this.emit('install:stage', { stage: 'checksum-verified', toolId: tool.id });
       }
 
-      // Stage 7: Config generation
+      // Stage 7: Config generation — inject any registered credentials for this tool
       this.emit('install:stage', { stage: 'config-generation', toolId: tool.id });
-      const runtimeConfig = configGenerator.generate(tool, {});
+      const injectedCredNames = credentialBroker.getInjectedCredentials(tool.id);
+      const credentials: Record<string, string> = {};
+      for (const credName of injectedCredNames) {
+        const cred = credentialBroker.get(credName);
+        if (cred) {
+          credentials[credName] = cred.value;
+        }
+      }
+      // Also look up any credentials registered under the tool's name
+      const toolNameCred = credentialBroker.get(tool.name);
+      if (toolNameCred) {
+        credentials[tool.name] = toolNameCred.value;
+      }
+      const runtimeConfig = configGenerator.generate(tool, credentials);
 
       // Stage 8: Runtime registration
       this.emit('install:stage', { stage: 'registration', toolId: tool.id });
