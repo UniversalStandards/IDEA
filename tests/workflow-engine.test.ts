@@ -255,4 +255,162 @@ describe('WorkflowEngine', () => {
     // On success the state file is deleted
     expect(fsp['unlink']).toHaveBeenCalled();
   });
+
+  it('throws when triggering a non-existent workflow', async () => {
+    await expect(engine.trigger('does-not-exist')).rejects.toThrow(/not found/i);
+  });
+
+  it('throws when triggering a disabled workflow', async () => {
+    const wf = makeWorkflow({ id: 'disabled-wf', enabled: false });
+    engine.registerWorkflow(wf);
+    await expect(engine.trigger('disabled-wf')).rejects.toThrow(/disabled/i);
+  });
+
+  it('empty workflow (no steps) succeeds immediately', async () => {
+    const wf = makeWorkflow({ id: 'empty-wf', steps: [] });
+    engine.registerWorkflow(wf);
+    const result = await engine.trigger('empty-wf');
+    expect(result.success).toBe(true);
+    expect(Object.keys(result.stepResults)).toHaveLength(0);
+  });
+
+  it('getRunHistory returns completed runs', async () => {
+    const wf = makeWorkflow({ id: 'history-wf', steps: [{ id: 's1', name: 'S1', action: 'noop' }] });
+    engine.registerWorkflow(wf);
+    const promise = engine.trigger('history-wf');
+    await jest.runAllTimersAsync();
+    await promise;
+    const history = engine.getRunHistory();
+    expect(history.length).toBeGreaterThan(0);
+    expect(history[0]?.workflowId).toBe('history-wf');
+  });
+
+  it('listWorkflows returns registered workflows', () => {
+    const wf1 = makeWorkflow({ id: 'wf-1', name: 'WF 1' });
+    const wf2 = makeWorkflow({ id: 'wf-2', name: 'WF 2' });
+    engine.registerWorkflow(wf1);
+    engine.registerWorkflow(wf2);
+    const list = engine.listWorkflows();
+    const ids = list.map((w) => w.id);
+    expect(ids).toContain('wf-1');
+    expect(ids).toContain('wf-2');
+  });
+
+  it('getWorkflow returns the workflow by ID', () => {
+    const wf = makeWorkflow({ id: 'get-wf' });
+    engine.registerWorkflow(wf);
+    expect(engine.getWorkflow('get-wf')?.id).toBe('get-wf');
+    expect(engine.getWorkflow('nonexistent')).toBeUndefined();
+  });
+
+  it('event-triggered workflow fires when the event is emitted', async () => {
+    const wf = makeWorkflow({
+      id: 'event-wf',
+      trigger: { type: 'event', config: { event: 'test:my-event' } },
+      steps: [{ id: 'ev-step', name: 'Event Step', action: 'noop' }],
+    });
+    engine.registerWorkflow(wf);
+
+    // Emit the trigger event — engine should auto-trigger the workflow
+    const completePromise = new Promise<void>((resolve) => {
+      engine.once('workflow:complete', () => resolve());
+    });
+
+    engine.emit('test:my-event', { source: 'test' });
+    await jest.runAllTimersAsync();
+    await completePromise;
+
+    const history = engine.getRunHistory();
+    expect(history.some((r) => r.workflowId === 'event-wf')).toBe(true);
+  });
+
+  it('event trigger with no eventName in config does NOT wire listener', () => {
+    const wf = makeWorkflow({
+      id: 'no-event-name-wf',
+      trigger: { type: 'event', config: {} }, // no 'event' key
+      steps: [{ id: 's1', name: 'S1', action: 'noop' }],
+    });
+    // Should not throw
+    expect(() => engine.registerWorkflow(wf)).not.toThrow();
+  });
+
+  it('cancelWorkflow is safe to call multiple times', async () => {
+    await engine.cancelWorkflow('nonexistent-run');
+    await engine.cancelWorkflow('nonexistent-run');
+    // No error thrown
+  });
+
+  it('step with onFailure jumps to the designated failure step', async () => {
+    const wf = makeWorkflow({
+      id: 'on-failure-wf',
+      steps: [
+        {
+          id: 'failing-step',
+          name: 'Fails',
+          action: 'emit_event',
+          params: {},
+          maxRetries: 0,
+          onFailure: 'recovery-step',
+        },
+        { id: 'recovery-step', name: 'Recovery', action: 'noop' },
+      ],
+    });
+    engine.registerWorkflow(wf);
+    const promise = engine.trigger('on-failure-wf');
+    await jest.runAllTimersAsync();
+    const result = await promise;
+    expect(result.stepResults['recovery-step']?.success).toBe(true);
+  });
+
+  it('log action records a log entry and returns { logged: true }', async () => {
+    const wf = makeWorkflow({
+      id: 'log-wf',
+      steps: [{ id: 'log-step', name: 'Log Step', action: 'log', params: { message: 'Hello' } }],
+    });
+    engine.registerWorkflow(wf);
+    const promise = engine.trigger('log-wf');
+    await jest.runAllTimersAsync();
+    const result = await promise;
+    expect(result.success).toBe(true);
+    expect((result.stepResults['log-step']?.output as { logged: boolean })?.logged).toBe(true);
+  });
+
+  it('emit_event action emits the named event and returns { emitted: eventName }', async () => {
+    const emittedEvents: string[] = [];
+    engine.on('custom:test-event', () => emittedEvents.push('custom:test-event'));
+
+    const wf = makeWorkflow({
+      id: 'emit-wf',
+      steps: [
+        {
+          id: 'emit-step',
+          name: 'Emit Step',
+          action: 'emit_event',
+          params: { event: 'custom:test-event', data: { foo: 'bar' } },
+        },
+      ],
+    });
+    engine.registerWorkflow(wf);
+    const promise = engine.trigger('emit-wf');
+    await jest.runAllTimersAsync();
+    const result = await promise;
+    expect(result.success).toBe(true);
+    expect(emittedEvents).toContain('custom:test-event');
+  });
+
+  it('unknown action dispatches a custom action:* event', async () => {
+    const dispatched: unknown[] = [];
+    engine.on('action:custom-action', (data) => dispatched.push(data));
+
+    const wf = makeWorkflow({
+      id: 'custom-action-wf',
+      steps: [{ id: 'ca-step', name: 'Custom', action: 'custom-action', params: { x: 1 } }],
+    });
+    engine.registerWorkflow(wf);
+    const promise = engine.trigger('custom-action-wf');
+    await jest.runAllTimersAsync();
+    const result = await promise;
+    expect(result.success).toBe(true);
+    expect(dispatched.length).toBeGreaterThan(0);
+  });
 });

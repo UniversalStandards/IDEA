@@ -139,3 +139,11 @@ export function createRequestLogger(
 }
 
 export { rootLogger };
+
+/**
+ * Exported for testing only — not part of the public API surface.
+ * Tests can import this to verify redaction logic without relying on
+ * Winston's internal format chain.
+ * @internal
+ */
+export { redactSensitive };
