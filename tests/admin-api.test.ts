@@ -294,6 +294,18 @@ describe('Health endpoints — /health/live and /health/ready', () => {
 // Helpers: reusable router-stack walker
 // ─────────────────────────────────────────────────────────────────
 
+// Extract the requireAuth middleware from the router's use() layer
+type ExtLayer = {
+  route?: unknown;
+  handle: (req: unknown, res: unknown, next: jest.Mock) => void;
+};
+
+function getRequireAuth(): (req: ReturnType<typeof makeReq>, res: ReturnType<typeof makeRes>, next: jest.Mock) => void {
+  const stack = adminRouter.stack as unknown as ExtLayer[];
+  const layer = stack.find((l) => l.route === undefined && typeof l.handle === 'function');
+  return layer!.handle as (req: ReturnType<typeof makeReq>, res: ReturnType<typeof makeRes>, next: jest.Mock) => void;
+}
+
 type Layer = {
   route?: {
     path: string;
@@ -432,5 +444,180 @@ describe('Admin API — GET /admin/audit', () => {
 
     const body = res._body as Record<string, unknown>;
     expect(body['action']).toBe('tool.install');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// New: requireAuth middleware direct tests (lines 26-43 in source)
+// ─────────────────────────────────────────────────────────────────
+
+describe('Admin API — requireAuth middleware (direct)', () => {
+  it('returns 401 when Authorization header is missing', () => {
+    const requireAuth = getRequireAuth();
+    const req = makeReq();
+    const res = makeRes();
+    const next = jest.fn();
+    requireAuth(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when Authorization header lacks "Bearer " prefix', () => {
+    const requireAuth = getRequireAuth();
+    const req = makeReq({ headers: { authorization: 'Basic dXNlcjpwYXNz' } });
+    const res = makeRes();
+    const next = jest.fn();
+    requireAuth(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 401 when JWT token is invalid', () => {
+    const requireAuth = getRequireAuth();
+    const req = makeReq({ headers: { authorization: 'Bearer not.a.valid.jwt.token' } });
+    const res = makeRes();
+    const next = jest.fn();
+    requireAuth(req, res, next);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('calls next() when JWT is valid', () => {
+    const requireAuth = getRequireAuth();
+    const req = makeReq({ headers: { authorization: `Bearer ${validToken()}` } });
+    const res = makeRes();
+    const next = jest.fn();
+    requireAuth(req, res, next);
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────
+// New: 500 error paths and additional validation branches
+// ─────────────────────────────────────────────────────────────────
+
+describe('Admin API — error paths (500) and additional validation', () => {
+  it('GET /capabilities returns 500 when getCapabilities throws', () => {
+    const { runtimeManager: rm } = require('../src/core/runtime-manager') as {
+      runtimeManager: { getCapabilities: jest.Mock };
+    };
+    rm.getCapabilities.mockImplementationOnce(() => {
+      throw new Error('internal error');
+    });
+
+    const req = makeReq();
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/capabilities', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Failed to retrieve capabilities' }));
+  });
+
+  it('DELETE /capabilities/:id returns 400 when ID exceeds 255 chars', () => {
+    const longId = 'a'.repeat(256);
+    const req = makeReq({ params: { id: longId } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'delete', '/capabilities/:id', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Invalid capability ID' }));
+  });
+
+  it('DELETE /capabilities/:id returns 500 when deregisterCapability throws', () => {
+    const { runtimeManager: rm } = require('../src/core/runtime-manager') as {
+      runtimeManager: { deregisterCapability: jest.Mock };
+    };
+    rm.deregisterCapability.mockImplementationOnce(() => {
+      throw new Error('internal error');
+    });
+
+    const req = makeReq({ params: { id: 'some-valid-tool' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'delete', '/capabilities/:id', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Failed to deregister capability' }));
+  });
+
+  it('GET /policies returns 500 when listPolicies throws', () => {
+    const { policyEngine: pe } = require('../src/policy/policy-engine') as {
+      policyEngine: { listPolicies: () => unknown[] };
+    };
+    const spy = jest.spyOn(pe, 'listPolicies').mockImplementationOnce(() => {
+      throw new Error('internal error');
+    });
+
+    const req = makeReq();
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/policies', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Failed to retrieve policies' }));
+    spy.mockRestore();
+  });
+
+  it('GET /costs returns 400 for non-numeric windowHours', () => {
+    const req = makeReq({ query: { windowHours: 'abc' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/costs', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('GET /costs returns 500 when getCostSummary throws', () => {
+    const { costMonitor: cm } = require('../src/observability/cost-monitor') as {
+      costMonitor: { getCostSummary: (ms: number) => unknown };
+    };
+    const spy = jest.spyOn(cm, 'getCostSummary').mockImplementationOnce(() => {
+      throw new Error('internal error');
+    });
+
+    const req = makeReq({ query: { windowHours: '24' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/costs', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Failed to retrieve cost data' }));
+    spy.mockRestore();
+  });
+
+  it('GET /audit returns 400 for non-numeric limit', () => {
+    const req = makeReq({ query: { limit: 'abc' } });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/audit', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+  });
+
+  it('GET /audit returns 500 when getRecentEntries throws', () => {
+    const { auditLog: al } = require('../src/security/audit') as {
+      auditLog: { getRecentEntries: jest.Mock };
+    };
+    al.getRecentEntries.mockImplementationOnce(() => {
+      throw new Error('internal error');
+    });
+
+    const req = makeReq({ query: {} });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/audit', req, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'Failed to retrieve audit entries' }));
+  });
+
+  it('GET /audit returns action: null in response when no action filter provided', () => {
+    const { auditLog: al } = require('../src/security/audit') as {
+      auditLog: { getRecentEntries: jest.Mock };
+    };
+    al.getRecentEntries.mockReturnValueOnce({ entries: [{ id: '1' }], total: 1 });
+
+    const req = makeReq({ query: {} });
+    const res = makeRes();
+    invokeRoute(adminRouter, 'get', '/audit', req, res);
+
+    const body = res._body as Record<string, unknown>;
+    expect(body['action']).toBeNull();
+    expect(body['total']).toBe(1);
   });
 });

@@ -134,4 +134,44 @@ describe('CliAdapter', () => {
     expect(tools.length).toBe(2);
     expect(tools.map((t) => t.id)).toContain('echo-tool');
   });
+
+  it('shutdown resolves without error', async () => {
+    await expect(adapter.shutdown()).resolves.not.toThrow();
+  });
+
+  it('executes template tool with clean substituted input', async () => {
+    adapter.register(TEMPLATE_TOOL);
+    const result = await adapter.execute('template-tool', { message: 'world' });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe('world');
+    expect(result.timedOut).toBe(false);
+  });
+
+  it('passes allowedEnvVars to the subprocess environment', async () => {
+    adapter.register({
+      id: 'env-tool',
+      command: 'sh',
+      args: ['-c', 'echo $PATH'],
+      description: 'Echo PATH env var',
+      inputSchema: z.object({}),
+      allowedEnvVars: ['PATH'],
+    });
+    const result = await adapter.execute('env-tool', {});
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim().length).toBeGreaterThan(0);
+  }, 10_000);
+
+  it('handles command not found via the error event', async () => {
+    adapter.register({
+      id: 'missing-cmd',
+      command: 'nonexistent-cmd-xyz-99999',
+      args: [],
+      description: 'A command that does not exist',
+      inputSchema: z.object({}),
+    });
+    const result = await adapter.execute('missing-cmd', {});
+    expect(result.exitCode).toBe(-1);
+    expect(result.stderr.length).toBeGreaterThan(0);
+    expect(result.timedOut).toBe(false);
+  }, 10_000);
 });

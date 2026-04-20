@@ -396,3 +396,199 @@ describe('PolicyEngine', () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 });
+
+// ─────────────────────────────────────────────────────────────────
+// New: buildConditionFn branch coverage via loaded policy packs
+// ─────────────────────────────────────────────────────────────────
+
+describe('PolicyEngine — buildConditionFn via loaded packs', () => {
+  let engine: PolicyEngine;
+  let tmpDir: string;
+
+  beforeEach(() => {
+    engine = new PolicyEngine();
+    // Remove all default policies for isolation
+    for (const p of engine.listPolicies()) engine.removePolicy(p.id);
+    const { mkdirSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    tmpDir = join(process.cwd(), 'tests', `policy-pack-fixture-${Date.now()}`);
+    mkdirSync(tmpDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    const { rmSync } = require('fs') as typeof import('fs');
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('riskLevel.gte condition matches when level >= threshold (deny fires)', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'risk-pack',
+      rules: [{ id: 'rl1', description: 'High risk deny', conditions: { riskLevel: { gte: 5 } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'risk.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ metadata: { riskLevel: 7 } });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('High risk deny'))).toBe(true);
+    expect(decision.allowed).toBe(false);
+  });
+
+  it('riskLevel.gte condition does not match when level < threshold', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'risk-pack2',
+      rules: [{ id: 'rl2', description: 'High risk deny 2', conditions: { riskLevel: { gte: 5 } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'risk2.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ metadata: { riskLevel: 3 } });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('High risk deny 2'))).toBe(false);
+  });
+
+  it('riskLevel.gte condition does not match when riskLevel is not a number', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'risk-pack3',
+      rules: [{ id: 'rl3', description: 'High risk deny 3', conditions: { riskLevel: { gte: 5 } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'risk3.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ metadata: {} });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('High risk deny 3'))).toBe(false);
+  });
+
+  it('capabilities.contains condition matches when capability is present', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'caps-pack',
+      rules: [{ id: 'cp1', description: 'Caps deny', conditions: { capabilities: { contains: 'read_files' } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'caps.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ metadata: { capabilities: ['read_files', 'write_files'] } });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('Caps deny'))).toBe(true);
+    expect(decision.allowed).toBe(false);
+  });
+
+  it('capabilities.contains condition does not match when capability is absent', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'caps-pack2',
+      rules: [{ id: 'cp2', description: 'Caps deny 2', conditions: { capabilities: { contains: 'read_files' } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'caps2.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ metadata: { capabilities: ['write_files'] } });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('Caps deny 2'))).toBe(false);
+  });
+
+  it('capabilities.contains condition does not match when capabilities is not an array', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'caps-pack3',
+      rules: [{ id: 'cp3', description: 'Caps deny 3', conditions: { capabilities: { contains: 'read_files' } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'caps3.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ metadata: { capabilities: 'read_files' } });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('Caps deny 3'))).toBe(false);
+  });
+
+  it('action.pattern condition matches when action matches the pattern', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'action-pack',
+      rules: [{ id: 'ap1', description: 'Execute action deny', conditions: { action: { pattern: '^execute' } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'action.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ action: 'execute_tool' });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('Execute action deny'))).toBe(true);
+  });
+
+  it('action.pattern condition does not match when action does not match the pattern', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'action-pack2',
+      rules: [{ id: 'ap2', description: 'Execute action deny 2', conditions: { action: { pattern: '^execute' } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'action2.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ action: 'install' });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('Execute action deny 2'))).toBe(false);
+  });
+
+  it('environment.eq condition matches when environment equals the value', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'env-pack',
+      rules: [{ id: 'ep1', description: 'Blocked env', conditions: { environment: { eq: 'production' } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'env.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ environment: 'production' });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('Blocked env'))).toBe(true);
+  });
+
+  it('environment.eq condition does not match when environment differs', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'env-pack2',
+      rules: [{ id: 'ep2', description: 'Blocked env 2', conditions: { environment: { eq: 'production' } }, effect: 'deny' }],
+    };
+    writeFileSync(join(tmpDir, 'env2.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext({ environment: 'test' });
+    const decision = engine.evaluate(ctx);
+    expect(decision.reasons.some((r) => r.includes('Blocked env 2'))).toBe(false);
+  });
+
+  it('require_approval effect in pack rule sets requiresApproval on decision', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'approval-pack',
+      rules: [
+        { id: 'ra1', description: 'Needs human approval', conditions: {}, effect: 'require_approval' },
+        { id: 'ra2', description: 'Allow too', conditions: {}, effect: 'allow' },
+      ],
+    };
+    writeFileSync(join(tmpDir, 'approval.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext();
+    const decision = engine.evaluate(ctx);
+    expect(decision.requiresApproval).toBe(true);
+    expect(decision.reasons.some((r) => r.includes('Needs human approval'))).toBe(true);
+    expect(decision.allowed).toBe(true);
+  });
+});
