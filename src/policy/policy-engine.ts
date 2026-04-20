@@ -13,6 +13,7 @@ export interface PolicyRule {
   action: 'allow' | 'deny' | 'require_approval' | 'log';
   reason: string;
   sourceId?: string;
+  rateLimit?: { requests: number; windowSeconds: number };
 }
 
 export interface Policy {
@@ -134,6 +135,7 @@ function packRuleToPolicy(packName: string, rule: PackRule, index: number): Poli
         action: rule.effect,
         reason: rule.description,
         sourceId: rule.id,
+        ...(rule.rateLimit !== undefined ? { rateLimit: rule.rateLimit } : {}),
       },
     ],
   };
@@ -199,6 +201,8 @@ export class PolicyEngine {
   private readonly policies = new Map<string, Policy>();
   private watcher: fs.FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Tracks per-rule request timestamps for rate-limit enforcement. */
+  private readonly rateLimitWindows = new Map<string, number[]>();
 
   constructor() {
     let requireApproval = true;
@@ -372,6 +376,28 @@ export class PolicyEngine {
 
         const ruleId = rule.sourceId ?? policy.id;
         matchedRuleIds.push(ruleId);
+
+        // ── Rate-limit enforcement ──────────────────────────────────────────
+        // If the rule has a rateLimit, track and check the request count.
+        // A rate-limit violation is treated as an explicit deny.
+        if (rule.rateLimit) {
+          const now = Date.now();
+          const windowMs = rule.rateLimit.windowSeconds * 1000;
+          const existing = this.rateLimitWindows.get(ruleId) ?? [];
+          const withinWindow = existing.filter((ts) => now - ts < windowMs);
+          withinWindow.push(now);
+          this.rateLimitWindows.set(ruleId, withinWindow);
+
+          if (withinWindow.length > rule.rateLimit.requests) {
+            explicitDeny = true;
+            reasons.push(
+              `[DENY] Rate limit exceeded for rule '${ruleId}': ` +
+              `${withinWindow.length}/${rule.rateLimit.requests} requests ` +
+              `in last ${rule.rateLimit.windowSeconds}s (policy: ${policy.name})`,
+            );
+            continue;
+          }
+        }
 
         switch (rule.action) {
           case 'deny':

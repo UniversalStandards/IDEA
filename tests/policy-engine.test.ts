@@ -591,4 +591,55 @@ describe('PolicyEngine — buildConditionFn via loaded packs', () => {
     expect(decision.reasons.some((r) => r.includes('Needs human approval'))).toBe(true);
     expect(decision.allowed).toBe(true);
   });
+
+  it('rateLimit: allows requests under the limit', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'rl-pack',
+      rules: [
+        {
+          id: 'rl-allow',
+          description: 'Rate-limited allow',
+          conditions: {},
+          effect: 'allow',
+          rateLimit: { requests: 5, windowSeconds: 60 },
+        },
+      ],
+    };
+    writeFileSync(join(tmpDir, 'rl.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    // First request should be allowed (1 of 5)
+    const decision = engine.evaluate(makeContext());
+    expect(decision.allowed).toBe(true);
+    expect(decision.reasons.some((r) => r.includes('Rate limit exceeded'))).toBe(false);
+  });
+
+  it('rateLimit: denies when request count exceeds limit within window', async () => {
+    const { writeFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const pack = {
+      name: 'rl-strict-pack',
+      rules: [
+        {
+          id: 'rl-strict',
+          description: 'Strict rate-limited allow',
+          conditions: {},
+          effect: 'allow',
+          rateLimit: { requests: 2, windowSeconds: 60 },
+        },
+      ],
+    };
+    writeFileSync(join(tmpDir, 'rl-strict.json'), JSON.stringify(pack));
+    await engine.loadPoliciesFromDir(tmpDir);
+
+    const ctx = makeContext();
+    engine.evaluate(ctx); // request 1
+    engine.evaluate(ctx); // request 2
+    const overLimit = engine.evaluate(ctx); // request 3 — should hit rate limit
+
+    expect(overLimit.allowed).toBe(false);
+    expect(overLimit.reasons.some((r) => r.includes('Rate limit exceeded'))).toBe(true);
+  });
 });

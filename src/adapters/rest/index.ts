@@ -1,4 +1,5 @@
 import { Router, type Request, type Response, type NextFunction, type Application } from 'express';
+import jwt from 'jsonwebtoken';
 import { createLogger } from '../../observability/logger';
 import { metrics } from '../../observability/metrics';
 import { registryManager } from '../../discovery/registry-manager';
@@ -7,8 +8,7 @@ import { runtimeRegistrar } from '../../provisioning/runtime-registrar';
 import { policyEngine } from '../../policy/policy-engine';
 import { providerRouter } from '../../routing/provider-router';
 import { workflowEngine } from '../../orchestration/workflow-engine';
-import { config } from '../../config';
-import { timingSafeEqual } from '../../security/crypto';
+import { getConfig } from '../../config';
 
 const logger = createLogger('rest-adapter');
 
@@ -19,11 +19,16 @@ function authMiddleware(req: Request, res: Response, next: NextFunction): void {
     return;
   }
   const token = authHeader.slice(7);
-  if (!timingSafeEqual(token, config.JWT_SECRET)) {
+  try {
+    const cfg = getConfig();
+    jwt.verify(token, cfg.JWT_SECRET);
+    next();
+  } catch (err) {
+    logger.warn('REST adapter: JWT verification failed', {
+      err: err instanceof Error ? err.message : String(err),
+    });
     res.status(401).json({ error: 'Unauthorized: invalid token' });
-    return;
   }
-  next();
 }
 
 export function createRestAdapter(app: Application): void {

@@ -207,6 +207,44 @@ export class RuntimeManager {
   isInitialized(): boolean {
     return this.initialized;
   }
+
+  /**
+   * Returns all tools currently registered in the runtime registrar,
+   * mapped to a simple capability descriptor shape for the admin API.
+   */
+  getCapabilities(): Array<{
+    id: string;
+    name: string;
+    version: string;
+    description: string;
+    source: string;
+    capabilities: string[];
+    tags: string[];
+    status: string;
+  }> {
+    return runtimeRegistrar.list().map((rt) => ({
+      id: rt.tool.id,
+      name: rt.tool.name,
+      version: rt.tool.version,
+      description: rt.tool.description,
+      source: rt.tool.source,
+      capabilities: rt.tool.capabilities,
+      tags: rt.tool.tags,
+      status: rt.status,
+    }));
+  }
+
+  /**
+   * Deregisters a capability from the runtime registrar by ID.
+   * Returns true if the capability was found and removed, false if not found.
+   */
+  deregisterCapability(id: string): boolean {
+    const existing = runtimeRegistrar.get(id);
+    if (!existing) return false;
+    runtimeRegistrar.unregister(id);
+    logger.info('Capability deregistered via admin API', { id });
+    return true;
+  }
 }
 
 export const runtimeManager = new RuntimeManager();

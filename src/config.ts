@@ -140,6 +140,16 @@ export function validateConfig(): Config {
     if (_config.LOG_LEVEL === 'silly') {
       throw new Error('LOG_LEVEL=silly is not permitted in NODE_ENV=production');
     }
+    // Warn when the events/webhooks adapter runs without signature verification.
+    // Unauthenticated webhooks allow any caller to inject events.
+    if (_config.WEBHOOK_SECRET === undefined) {
+      // Use process.stderr directly — logger is not yet available at config validation time
+      process.stderr.write(
+        '[WARN] WEBHOOK_SECRET is not set in production. ' +
+        'Webhook endpoints will accept events from any caller without signature verification. ' +
+        'Set WEBHOOK_SECRET to a strong random hex string to enable HMAC-SHA256 verification.\n',
+      );
+    }
   }
 
   return _config;

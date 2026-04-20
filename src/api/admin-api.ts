@@ -54,11 +54,7 @@ adminRouter.use(requireAuth);
 
 adminRouter.get('/capabilities', (req: Request, res: Response) => {
   try {
-    // runtimeManager.getCapabilities() may not exist in all versions
-    const capabilities =
-      typeof (runtimeManager as unknown as Record<string, unknown>)['getCapabilities'] === 'function'
-        ? (runtimeManager as unknown as { getCapabilities: () => unknown[] }).getCapabilities()
-        : [];
+    const capabilities = runtimeManager.getCapabilities();
 
     auditLog.record('admin.capabilities.list', 'admin', 'runtime', 'success', undefined, {
       count: capabilities.length,
@@ -87,11 +83,7 @@ adminRouter.delete('/capabilities/:id', (req: Request, res: Response) => {
 
   const id = parsed.data;
   try {
-    const rm = runtimeManager as unknown as Record<string, unknown>;
-    const removed =
-      typeof rm['deregisterCapability'] === 'function'
-        ? (rm['deregisterCapability'] as (id: string) => boolean)(id)
-        : false;
+    const removed = runtimeManager.deregisterCapability(id);
 
     if (!removed) {
       res.status(404).json({ error: `Capability '${id}' not found or already removed` });
