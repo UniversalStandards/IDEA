@@ -1351,7 +1351,92 @@ img, video, svg { max-width: 100%; height: auto; display: block; }
   color: rgb(199 210 254 / .5);
 }
 
-/* ── Utility classes ────────────────────────────────────────────────────────── */
+/* ── ═══════════════════════════════════════════════════════════════════════ */
+/* ── DASHBOARD PAGE — status pulse, section spacing, charts, providers ───── */
+/* ── ═══════════════════════════════════════════════════════════════════════ */
+
+/* Status pulse animation */
+@keyframes pulse-ring {
+  0%   { transform: scale(1);   opacity: .9; }
+  70%  { transform: scale(1.8); opacity: 0;  }
+  100% { transform: scale(1.8); opacity: 0;  }
+}
+.status-pulse {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background-color: var(--color-success);
+  position: relative;
+}
+.status-pulse::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background-color: var(--color-success);
+  animation: pulse-ring 2.5s ease-out infinite;
+}
+.status-pulse--warning { background-color: var(--color-warning); }
+.status-pulse--warning::before { background-color: var(--color-warning); }
+
+/* Section spacing */
+.dash-section { margin-bottom: 1.75rem; }
+.dash-section-title {
+  font-size: .8125rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  margin-bottom: .875rem;
+}
+
+/* Charts grid */
+.charts-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+.charts-grid > * { min-width: 0; }
+@media (min-width: 1024px) { .charts-grid { grid-template-columns: 1fr 1fr; } }
+
+/* Provider cards */
+.providers-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 640px)  { .providers-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1024px) { .providers-grid { grid-template-columns: repeat(3, 1fr); } }
+
+.provider-card {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: .625rem;
+}
+.provider-header { display: flex; align-items: center; justify-content: space-between; }
+.provider-name   { font-weight: 700; font-size: .9375rem; color: var(--color-text); }
+.provider-status {
+  display: flex;
+  align-items: center;
+  gap: .375rem;
+  font-size: .8125rem;
+  font-weight: 600;
+}
+.provider-status--ok      { color: var(--color-success); }
+.provider-status--warning { color: var(--color-warning); }
+.provider-status--error   { color: var(--color-danger);  }
+.provider-meta       { display: grid; grid-template-columns: 1fr 1fr; gap: .375rem; }
+.provider-meta-item  { display: flex; flex-direction: column; }
+.provider-meta-label { font-size: .6875rem; color: var(--color-text-subtle); text-transform: uppercase; letter-spacing: .04em; }
+.provider-meta-value { font-size: .9375rem; font-weight: 600; color: var(--color-text); }
+
+/* Progress bar */
+.progress-bar       { height: 6px; border-radius: 9999px; background-color: var(--color-surface-2); overflow: hidden; }
+.progress-bar__fill { height: 100%; border-radius: 9999px; background: linear-gradient(90deg, var(--color-primary), var(--color-accent)); transition: width .6s ease; }
 .visually-hidden {
   position: absolute;
   width: 1px; height: 1px;

@@ -95,12 +95,15 @@
     }
   }
 
-  // Active link highlight based on current URL hash/path
-  var currentPath = window.location.pathname.split('/').pop() || 'index.html';
+  // Active link highlight based on current URL path (exact filename match only)
+  var currentFile = window.location.pathname.split('/').pop() || 'index.html';
+  if (currentFile === '') { currentFile = 'index.html'; }
   var allNavLinks = document.querySelectorAll('.topnav__links a, .drawer__nav a');
   for (var k = 0; k < allNavLinks.length; k++) {
     var href = allNavLinks[k].getAttribute('href') || '';
-    if (href && (href === currentPath || currentPath.indexOf(href.replace('.html','')) !== -1)) {
+    var hrefFile = href.split('/').pop() || '';
+    // Exact filename match (e.g. 'docs.html' === 'docs.html')
+    if (hrefFile && hrefFile === currentFile) {
       allNavLinks[k].classList.add('active');
     }
   }

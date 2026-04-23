@@ -71,8 +71,12 @@
     var svg = document.getElementById(svgId);
     if (!svg) { return; }
 
-    var W = svg.viewBox.baseVal.width  || 600;
-    var H = svg.viewBox.baseVal.height || 120;
+    // Parse viewBox from attribute string to avoid relying on .baseVal which
+    // may not be available when the element was just created.
+    var vbAttr = svg.getAttribute('viewBox') || '0 0 600 120';
+    var vbParts = vbAttr.split(/\s+/);
+    var W = parseFloat(vbParts[2]) || 600;
+    var H = parseFloat(vbParts[3]) || 120;
     var pad = 8;
 
     var min = Math.min.apply(null, data);

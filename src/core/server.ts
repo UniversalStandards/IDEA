@@ -42,17 +42,7 @@ export class Server {
     this.app.use(express.static(publicDir));
 
     // ── Security middleware ────────────────────────────────────────────────
-    // Allow inline styles so the dashboard <style> blocks render correctly.
-    this.app.use(
-      helmet({
-        contentSecurityPolicy: {
-          useDefaults: true,
-          directives: {
-            'style-src': ["'self'", "'unsafe-inline'"],
-          },
-        },
-      }),
-    );
+    this.app.use(helmet());
 
     const corsOriginRaw = this.cfg.CORS_ORIGIN ?? '*';
     const isWildcard = corsOriginRaw === '*';
