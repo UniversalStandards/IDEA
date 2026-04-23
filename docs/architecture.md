@@ -20,7 +20,7 @@ The platform is designed to be deployed as a single-node HTTP service (developme
 | `src/routing/` | Provider selection, scheduling, capability matching | `ProviderRouter`, `Scheduler`, `CapabilitySelector` | — |
 | `src/policy/` | Policy rule evaluation, trust scoring, approval gates | `PolicyEngine`, `TrustEvaluator`, `ApprovalGates` | zod, node:fs |
 | `src/security/` | Cryptography, audit logging, credential broker, secret store | `CryptoUtils`, `AuditLogger`, `CredentialBroker`, `SecretStore` | node:crypto, jsonwebtoken |
-| `src/orchestration/` | DAG task graph, multi-agent routing, workflow execution engine | `TaskGraph`, `AgentRouter`, `ExecutionPlanner`, `WorkflowEngine` | p-queue |
+| `src/orchestration/` | DAG task graph, multi-agent routing, workflow execution engine | `TaskGraph`, `AgentRouter`, `ExecutionPlanner`, `WorkflowEngine` | Promise.allSettled |
 | `src/observability/` | Structured logging, metrics, tracing, cost monitoring | `Logger`, `Metrics`, `Tracing`, `CostMonitor` | winston, winston-daily-rotate-file |
 | `src/adapters/` | Per-protocol adapters (MCP, REST, GraphQL, CLI, Events) | `MCPAdapter`, `RestAdapter`, `GraphQLAdapter`, `CliAdapter`, `EventsAdapter` | axios, @modelcontextprotocol/sdk |
 | `src/api/` | Admin API, health checks, status endpoints | `adminRouter`, `healthRouter`, `statusRouter` | express, jsonwebtoken, zod |
