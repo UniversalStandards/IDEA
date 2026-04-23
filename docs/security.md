@@ -80,7 +80,7 @@ Entries are appended as JSONL to `runtime/audit.jsonl`. Rotation and archival ar
 - File size exceeds 100 MB
 - Daily cron (logrotate `daily`)
 
-**HMAC verification before purge**: run `tsx scripts/verify-audit-log.ts <file>` and confirm exit code `0` before removing any archive copy. See `docs/deployment.md §7` for the full operator runbook.
+**HMAC verification before purge**: run `tsx scripts/verify-audit-log.ts <file>` and confirm exit code `0` before removing any archive copy. See `docs/deployment.md` Section 7 for the full operator runbook.
 
 ### Flush on Shutdown
 `auditLog.flush()` is registered in the lifecycle shutdown sequence to drain any buffered entries before process exit.

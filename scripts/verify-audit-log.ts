@@ -25,11 +25,10 @@
  *   ENCRYPTION_KEY   The secret used to sign audit entries (required).
  */
 
-import { createReadStream } from 'fs';
+import { createReadStream, existsSync, readFileSync } from 'fs';
 import { createInterface } from 'readline';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, timingSafeEqual } from 'crypto';
 import { resolve } from 'path';
-import { existsSync } from 'fs';
 
 // ─────────────────────────────────────────────────────────────────
 // Minimal dotenv loader — avoids pulling in the full app bootstrap
@@ -37,7 +36,6 @@ import { existsSync } from 'fs';
 
 function loadEnvFile(envPath: string): void {
   if (!existsSync(envPath)) return;
-  const { readFileSync } = require('fs') as typeof import('fs');
   const lines = readFileSync(envPath, 'utf8').split('\n');
   for (const raw of lines) {
     const line = raw.trim();
@@ -58,7 +56,6 @@ function loadEnvFile(envPath: string): void {
 
 function computeHmac(payload: string, secret: string): string {
   // Mirror the key-padding logic in src/security/crypto.ts
-  const { createHash } = require('crypto') as typeof import('crypto');
   const keyHex =
     secret.length === 64 && /^[0-9a-fA-F]+$/.test(secret)
       ? secret

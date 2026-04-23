@@ -278,7 +278,7 @@ following content, adjusting paths to match your installation:
 
 ```logrotate
 /opt/mcp-hub/runtime/audit.jsonl {
-    # Rotate when file exceeds 100 MB or daily — whichever comes first
+    # Rotate daily; also rotate mid-day if the file exceeds 100 MB
     daily
     size 100M
 
@@ -347,9 +347,10 @@ bundled script:
 # Verify a live or rotated audit log
 ENCRYPTION_KEY=<your-key> tsx scripts/verify-audit-log.ts runtime/audit.jsonl
 
-# Verify a gzip-compressed archive (decompress first)
-gunzip -c runtime/audit-archive/audit.jsonl.1.gz | \
-  ENCRYPTION_KEY=<your-key> tsx scripts/verify-audit-log.ts /dev/stdin
+# Verify a gzip-compressed rotated archive (decompress first, Linux only)
+gunzip -c runtime/audit-archive/audit.jsonl.1.gz > /tmp/audit-check.jsonl && \
+  ENCRYPTION_KEY=<your-key> tsx scripts/verify-audit-log.ts /tmp/audit-check.jsonl && \
+  rm /tmp/audit-check.jsonl
 
 # Fail immediately on first tampered entry
 ENCRYPTION_KEY=<your-key> tsx scripts/verify-audit-log.ts --fail-fast runtime/audit.jsonl
