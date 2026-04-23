@@ -1,0 +1,29 @@
+{
+  "id": "json-default",
+  "name": "Default JSON Policy Pack",
+  "priority": 5,
+  "enabled": true,
+  "rules": [
+    {
+      "action": "deny",
+      "reason": "Explicitly blocked tools are not permitted",
+      "conditions": {
+        "toolId": ["blocked-tool"]
+      }
+    },
+    {
+      "action": "require_approval",
+      "reason": "Sensitive environment requires approval",
+      "conditions": {
+        "environment": ["production"]
+      }
+    },
+    {
+      "action": "allow",
+      "reason": "Trusted actor is permitted",
+      "conditions": {
+        "actor": ["trusted-actor"]
+      }
+    }
+  ]
+}
