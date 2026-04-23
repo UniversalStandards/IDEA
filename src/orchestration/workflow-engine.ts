@@ -329,7 +329,14 @@ export class WorkflowEngine extends EventEmitter {
   private persistState(run: WorkflowRunResult): void {
     try {
       mkdirSync(WORKFLOWS_DIR, { recursive: true });
-      const filePath = join(WORKFLOWS_DIR, `${run.workflowId}.json`);
+      // Sanitize workflowId to prevent path traversal: allow only word chars, hyphens, and dots
+      const safeId = run.workflowId.replace(/[^a-zA-Z0-9_\-.]/g, '_');
+      const filePath = join(WORKFLOWS_DIR, `${safeId}.json`);
+      // Confirm resolved path is within WORKFLOWS_DIR
+      if (!filePath.startsWith(WORKFLOWS_DIR + '/') && filePath !== join(WORKFLOWS_DIR, `${safeId}.json`)) {
+        logger.warn('Rejected unsafe workflow state path', { workflowId: run.workflowId });
+        return;
+      }
       writeFileSync(filePath, JSON.stringify(run, null, 2), 'utf8');
     } catch (err) {
       logger.warn('Failed to persist workflow state', { workflowId: run.workflowId, err });

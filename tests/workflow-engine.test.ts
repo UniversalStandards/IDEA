@@ -10,8 +10,6 @@
  * - State persistence to runtime/workflows/
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'fs';
-import { join } from 'path';
 import {
   WorkflowEngine,
   type Workflow,
@@ -23,16 +21,6 @@ import {
 // ────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────────────
-
-const TMP_RUNTIME = join(process.cwd(), 'runtime-test-' + process.pid);
-const DLQ_PATH = join(TMP_RUNTIME, 'workflow-dlq.jsonl');
-const WORKFLOWS_DIR = join(TMP_RUNTIME, 'workflow-test-workflows');
-
-/** Re-point the engine's runtime paths to our tmp directory so tests don't
- *  pollute the real runtime/ folder. We do this by monkey-patching the
- *  module-level constants via re-requiring the module in an isolated context,
- *  but the simplest approach is to spy on fs calls and redirect them.
- */
 
 function makeStep(
   id: string,
@@ -72,33 +60,9 @@ function fastRetryPolicy(maxRetries: number): RetryPolicy {
 
 describe('WorkflowEngine', () => {
   let engine: WorkflowEngine;
-  // Track real fs calls by mocking them
-  const fsMocks = {
-    mkdirSyncCalls: [] as string[],
-    writeFileSyncCalls: [] as Array<{ path: string; content: string }>,
-    appendFileSyncCalls: [] as Array<{ path: string; content: string }>,
-  };
-
-  // Patch fs methods to capture calls without touching the real filesystem
-  let origMkdirSync: typeof mkdirSync;
-  let origWriteFileSync: typeof import('fs').writeFileSync;
-  let origAppendFileSync: typeof import('fs').appendFileSync;
-
-  beforeAll(() => {
-    // Ensure tmp dir exists for any real-path tests
-    mkdirSync(TMP_RUNTIME, { recursive: true });
-    mkdirSync(WORKFLOWS_DIR, { recursive: true });
-  });
-
-  afterAll(() => {
-    if (existsSync(TMP_RUNTIME)) rmSync(TMP_RUNTIME, { recursive: true, force: true });
-  });
 
   beforeEach(() => {
     engine = new WorkflowEngine();
-    fsMocks.mkdirSyncCalls = [];
-    fsMocks.writeFileSyncCalls = [];
-    fsMocks.appendFileSyncCalls = [];
   });
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -143,68 +107,14 @@ describe('WorkflowEngine', () => {
   // ──────────────────────────────────────────────────────────────────────────
 
   it('retries a failing step up to maxRetries before marking it failed', async () => {
-    let callCount = 0;
-
-    engine.on('action:fail_action', () => {
-      callCount++;
-      throw new Error('deliberate failure');
-    });
-
-    // The engine's dispatchAction emits to the EventEmitter for unknown actions
-    // — but it doesn't throw from there. We need a custom approach: register
-    // a listener that throws.  However, the dispatcher catches via try/catch
-    // in executeStep, so we instead use a spy on dispatchAction by customising
-    // a step that uses an action registered in the default branch.
-    //
-    // Simpler: use a subclass to make dispatchAction throw on demand.
-    class FailingEngine extends WorkflowEngine {
-      private failCount = 0;
-      readonly maxFails: number;
-      constructor(maxFails: number) {
-        super();
-        this.maxFails = maxFails;
-      }
-      // Override to throw for the 'fail_n_times' action
-      protected dispatchFail(): unknown {
-        this.failCount++;
-        if (this.failCount <= this.maxFails) {
-          throw new Error(`Attempt ${this.failCount} failed`);
-        }
-        return { recovered: true };
-      }
-    }
-
-    const retryEngine = new (class extends WorkflowEngine {
-      private callCount = 0;
-      private readonly failUntil: number;
-      constructor(failUntil: number) {
-        super();
-        this.failUntil = failUntil;
-      }
-      // Expose for testing: track attempt count per step
-      getCallCount(): number { return this.callCount; }
-    })(3);
-
-    // We can't easily subclass dispatchAction without re-exporting it.
-    // Instead, spy on the action via the 'action:custom' event path — but
-    // that path doesn't throw. Use a different approach: test via a step
-    // whose action always throws and retryPolicy catches it.
-
-    // Best approach: use Jest to mock the module's dispatchAction indirectly
-    // by registering a custom action listener that throws synchronously.
-    // The default branch of dispatchAction emits `action:<name>` and returns
-    // — it does NOT throw. So a failing test must use a real throwing path.
-    //
-    // Let's directly subclass WorkflowEngine and override the private method
-    // using TypeScript access via (engine as any).
-
     const failingEngine = new WorkflowEngine();
-
     let attempts = 0;
-    // Monkey-patch dispatchAction to track calls
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only hack to access private method
+
+    // Monkey-patch dispatchAction so the 'failing_action' always throws.
+    // This is a test-only access to a private method.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     const original = (failingEngine as any).dispatchAction.bind(failingEngine);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (failingEngine as any).dispatchAction = async (
       action: string,
       params: Record<string, unknown>,
@@ -234,7 +144,7 @@ describe('WorkflowEngine', () => {
     const failingEngine = new WorkflowEngine();
     let attempts = 0;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (failingEngine as any).dispatchAction = async (action: string): Promise<unknown> => {
       if (action === 'flaky') {
         attempts++;
@@ -265,12 +175,10 @@ describe('WorkflowEngine', () => {
     const completedSteps: string[] = [];
 
     const slowEngine = new WorkflowEngine();
-    let runIdCapture = '';
 
     slowEngine.on('workflow:started', (data: unknown) => {
       const d = data as { runId: string };
-      runIdCapture = d.runId;
-      // Cancel after started (before any step runs)
+      // Cancel immediately after the workflow starts, before any step runs
       void slowEngine.cancelWorkflow(d.runId);
     });
 
@@ -318,11 +226,12 @@ describe('WorkflowEngine', () => {
     const dlqEntries: DlqEntry[] = [];
 
     const dlqEngine = new WorkflowEngine();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // Intercept writeDlqEntry to capture entries without touching the filesystem
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (dlqEngine as any).writeDlqEntry = (entry: DlqEntry): void => {
       dlqEntries.push(entry);
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (dlqEngine as any).dispatchAction = async (action: string): Promise<unknown> => {
       if (action === 'always_fails') throw new Error('permanent error');
       return { noop: true };
@@ -349,11 +258,11 @@ describe('WorkflowEngine', () => {
     const dlqEntries: DlqEntry[] = [];
     const dlqEngine = new WorkflowEngine();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (dlqEngine as any).writeDlqEntry = (entry: DlqEntry): void => {
       dlqEntries.push(entry);
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (dlqEngine as any).dispatchAction = async (): Promise<unknown> => {
       throw new Error('step error message');
     };
@@ -370,7 +279,7 @@ describe('WorkflowEngine', () => {
       stepId: 'step-a',
       error: 'step error message',
       attempts: 1,
-      lastAttemptAt: expect.any(String) as string,
+      lastAttemptAt: expect.any(String),
     });
     // lastAttemptAt must be a valid ISO 8601 timestamp
     expect(new Date(entry.lastAttemptAt).toISOString()).toBe(entry.lastAttemptAt);
@@ -384,7 +293,9 @@ describe('WorkflowEngine', () => {
     const persisted: Array<{ path: string; content: string }> = [];
     const persistEngine = new WorkflowEngine();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // Intercept persistState to verify it is called with the correct data
+    // without touching the filesystem.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (persistEngine as any).persistState = (run: unknown): void => {
       persisted.push({ path: `workflows/${(run as { workflowId: string }).workflowId}.json`, content: JSON.stringify(run) });
     };
@@ -404,7 +315,7 @@ describe('WorkflowEngine', () => {
     const persisted: Array<{ workflowId: string; stepResults: Record<string, unknown> }> = [];
     const persistEngine = new WorkflowEngine();
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
     (persistEngine as any).persistState = (run: unknown): void => {
       const r = run as { workflowId: string; stepResults: Record<string, unknown> };
       persisted.push({ workflowId: r.workflowId, stepResults: r.stepResults });
@@ -440,25 +351,22 @@ describe('WorkflowEngine', () => {
 
   it('step:failed event is emitted when a step fails with onFailure defined', async () => {
     const failedEvents: string[] = [];
-    engine.on('workflow:step:failed', (data: unknown) => {
+
+    const failEngine = new WorkflowEngine();
+    failEngine.on('workflow:step:failed', (data: unknown) => {
       failedEvents.push((data as { stepId: string }).stepId);
     });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only access to private method
+    (failEngine as any).dispatchAction = async (action: string): Promise<unknown> => {
+      if (action === 'bad') throw new Error('bad action');
+      return { noop: true };
+    };
 
     // s1 fails → goes to s2 via onFailure
     const wf = makeWorkflow('wf-step-fail', [
       makeStep('s1', 'bad', { onFailure: 's2' }),
       makeStep('s2', 'noop'),
     ]);
-
-    const failEngine = new WorkflowEngine();
-    failEngine.on('workflow:step:failed', (data: unknown) => {
-      failedEvents.push((data as { stepId: string }).stepId);
-    });
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test-only
-    (failEngine as any).dispatchAction = async (action: string): Promise<unknown> => {
-      if (action === 'bad') throw new Error('bad action');
-      return { noop: true };
-    };
 
     failEngine.registerWorkflow(wf);
     const result = await failEngine.trigger('wf-step-fail');
