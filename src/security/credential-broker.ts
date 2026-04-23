@@ -26,7 +26,10 @@ function storeKey(toolId: string, key: string): string {
 function getEncryptionKey(): string {
   try {
     return getConfig().ENCRYPTION_KEY;
-  } catch {
+  } catch (err) {
+    logger.warn('Failed to load config for encryption key, using env fallback', {
+      err: err instanceof Error ? err.message : String(err),
+    });
     return process.env['ENCRYPTION_KEY'] ?? 'fallback-dev-key-change-me-in-prod!!';
   }
 }
@@ -123,8 +126,8 @@ export class CredentialBroker {
       throw new Error(`Credential not found for toolId="${toolId}" key="${key}"`);
     }
 
-    // Wipe old value first, then write new encrypted value
-    this.vault.delete(sk);
+    // Overwrite with new encrypted value in a single operation to avoid
+    // any window between deleting the old entry and writing the new one.
     const encKey = getEncryptionKey();
     const ciphertext = encrypt(newValue, encKey);
     this.vault.set(sk, ciphertext);
