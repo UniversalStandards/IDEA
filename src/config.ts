@@ -58,7 +58,7 @@ const ConfigSchema = z.object({
   GITHUB_BRANCH: z.string().default('main'),
 
   // Enterprise Catalog
-  ENTERPRISE_CATALOG_URL: z.string().url().optional(),
+  ENTERPRISE_CATALOG_URL: z.string().url().optional().or(z.literal('').transform(() => undefined)),
   ENTERPRISE_CATALOG_PATH: z.string().optional(),
 
   // Security
@@ -105,7 +105,7 @@ const ConfigSchema = z.object({
   ENABLE_RUNTIME_HEALTH_RECOVERY: boolEnv(true),
 
   // Redis (future distributed caching)
-  REDIS_URL: z.string().url().optional(),
+  REDIS_URL: z.string().url().optional().or(z.literal('').transform(() => undefined)),
 
   // Observability
   ENABLE_METRICS: boolEnv(true),

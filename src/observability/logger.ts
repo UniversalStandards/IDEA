@@ -11,6 +11,7 @@ import { createLogger as winstonCreateLogger, format, transports, type Logger } 
 import DailyRotateFile from 'winston-daily-rotate-file';
 import path from 'path';
 import fs from 'fs';
+import { LogStreamTransport } from './log-streamer';
 
 // ─────────────────────────────────────────────────────────────────
 const SENSITIVE_KEYS = new Set([
@@ -107,8 +108,8 @@ const rootLogger = winstonCreateLogger({
     nodeEnv === 'test'
       ? [] // Suppress all output in tests
       : nodeEnv === 'production'
-        ? [...productionTransports, consoleTransport]
-        : [consoleTransport],
+        ? [...productionTransports, consoleTransport, new LogStreamTransport()]
+        : [consoleTransport, new LogStreamTransport()],
   silent: nodeEnv === 'test',
 });
 

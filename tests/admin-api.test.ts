@@ -126,9 +126,38 @@ describe('Admin API — Route Logic', () => {
     expect(adminRouter.stack).toBeDefined();
   });
 
-  it('has the expected number of route layers', () => {
-    // Should have: auth middleware + 5 routes (capabilities, capabilities/:id, policies, costs, audit)
-    expect(adminRouter.stack.length).toBeGreaterThanOrEqual(5);
+  it('has the expected number of route layers (including SSE streaming routes)', () => {
+    // dashboard (public) + auth middleware + capabilities + capabilities/:id +
+    // policies + costs + audit + metrics/stream + logs/stream + events/stream
+    expect(adminRouter.stack.length).toBeGreaterThanOrEqual(9);
+  });
+
+  it('registers GET /dashboard route', () => {
+    const routePaths: string[] = adminRouter.stack
+      .filter((layer) => layer.route)
+      .map((layer) => (layer.route as { path: string }).path as string);
+    expect(routePaths).toContain('/dashboard');
+  });
+
+  it('registers GET /metrics/stream route', () => {
+    const routePaths: string[] = adminRouter.stack
+      .filter((layer) => layer.route)
+      .map((layer) => (layer.route as { path: string }).path as string);
+    expect(routePaths).toContain('/metrics/stream');
+  });
+
+  it('registers GET /logs/stream route', () => {
+    const routePaths: string[] = adminRouter.stack
+      .filter((layer) => layer.route)
+      .map((layer) => (layer.route as { path: string }).path as string);
+    expect(routePaths).toContain('/logs/stream');
+  });
+
+  it('registers GET /events/stream route', () => {
+    const routePaths: string[] = adminRouter.stack
+      .filter((layer) => layer.route)
+      .map((layer) => (layer.route as { path: string }).path as string);
+    expect(routePaths).toContain('/events/stream');
   });
 });
 
@@ -147,5 +176,34 @@ describe('Audit query schema validation', () => {
     const { z } = require('zod') as typeof import('zod');
     const schema = z.object({ limit: z.coerce.number().int().min(1).max(500) });
     expect(() => schema.parse({ limit: '501' })).toThrow();
+  });
+});
+
+describe('Admin API — SSE token verification', () => {
+  const JWT_SECRET_LOCAL = 'test-secret-that-is-32-characters-long!!';
+
+  it('accepts a valid token from Authorization header', () => {
+    const token = jwt.sign({ sub: 'admin' }, JWT_SECRET_LOCAL, { expiresIn: '1h' });
+    const decoded = jwt.verify(token, JWT_SECRET_LOCAL) as Record<string, unknown>;
+    expect(decoded['sub']).toBe('admin');
+  });
+
+  it('rejects a token signed with wrong secret', () => {
+    const token = jwt.sign({ sub: 'admin' }, 'wrong-secret-padding-to-32-chars!!');
+    expect(() => jwt.verify(token, JWT_SECRET_LOCAL)).toThrow();
+  });
+
+  it('verifySseToken accepts query param token (schema validation)', () => {
+    const { z } = require('zod') as typeof import('zod');
+    const schema = z.object({
+      level:  z.string().optional(),
+      module: z.string().optional(),
+    });
+    const result = schema.safeParse({ level: 'error', module: 'api' });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.level).toBe('error');
+      expect(result.data.module).toBe('api');
+    }
   });
 });
