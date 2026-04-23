@@ -88,13 +88,13 @@ export class RuntimeManager {
       }
     }
 
-    metrics.increment('runtime_shutdowns_total');
-    this.initialized = false;
-    logger.info('Runtime manager shutdown complete');
-
     // Shut down adapters
     await graphqlAdapter.shutdown();
     await cliAdapter.shutdown();
+
+    metrics.increment('runtime_shutdowns_total');
+    this.initialized = false;
+    logger.info('Runtime manager shutdown complete');
   }
 
   getStatus(): RuntimeStatus {
