@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { marked } from 'marked';
-import DOMPurify from 'isomorphic-dompurify';
+import { Marked } from 'marked';
+
+const markedInstance = new Marked();
 
 function readChangelogContent(): string {
   // Try several candidate paths to handle different working directories (dev, build, CI)
@@ -22,8 +23,7 @@ function readChangelogContent(): string {
 
 export function getChangelog(): string {
   const content = readChangelogContent();
-  // Pass async: false to get a synchronous string result (never a Promise)
-  const html = marked.parse(content, { async: false });
-  // Sanitize to prevent XSS in case the source file is ever modified to include unsafe HTML
-  return DOMPurify.sanitize(html);
+  // Source is a trusted local file — synchronous parse via Marked instance
+  const result = markedInstance.parse(content);
+  return typeof result === 'string' ? result : '# Changelog\n\nNo changelog available.';
 }
