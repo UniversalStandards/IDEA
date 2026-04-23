@@ -17,6 +17,7 @@ import { statusRouter } from '../api/status';
 import { adminRouter } from '../api/admin-api';
 import { createRestAdapter } from '../adapters/rest/index';
 import { MCPAdapter } from '../adapters/mcp/index';
+import { eventsAdapter } from '../adapters/events/index';
 import { runtimeManager } from './runtime-manager';
 import { lifecycle } from './lifecycle';
 
@@ -80,6 +81,9 @@ export class Server {
 
     // REST API adapter mounts its own routes onto the app
     createRestAdapter(this.app);
+
+    // Events adapter — webhook receiver + SSE stream (AGENTS.md §3.5)
+    this.app.use('/adapters/events', eventsAdapter.buildRouter());
 
     // ── Runtime initialization ──────────────────────────────────────────
     await runtimeManager.initialize();
