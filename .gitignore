@@ -83,3 +83,9 @@ temp/
 
 # Docker
 .docker/
+
+# Next.js
+web/.next/
+web/out/
+web/node_modules/
+
