@@ -273,7 +273,7 @@ The server uses [Helmet](https://helmetjs.github.io/) with **explicit** directiv
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
 | `X-Frame-Options` | `DENY` | Blocks clickjacking via iframes |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage on cross-origin navigation |
-| `X-XSS-Protection` | `0` | Disables legacy XSS auditor; defer to CSP |
+| `X-XSS-Protection` | `0` | Disables legacy XSS auditor (helmet v5+ always sends `0`); defer to CSP |
 | `X-Request-ID` | `<uuid>` | Injected on every response for log correlation |
 
 ### Request Body Size Limits

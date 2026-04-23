@@ -44,7 +44,8 @@ function buildHealthResponse(ready: boolean): HealthStatus {
 
 /** GET /health — combined probe (backward compatible) */
 healthRouter.get('/', (req: Request, res: Response) => {
-  const requestId = (res.getHeader('X-Request-ID') as string | undefined) ?? randomUUID();
+  // req.requestId is set by the global X-Request-ID middleware in server.ts
+  const requestId = req.requestId ?? randomUUID();
   res.setHeader('X-Request-ID', requestId);
   const ready = runtimeManager.isInitialized();
   const body = buildHealthResponse(ready);

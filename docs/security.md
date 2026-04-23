@@ -107,7 +107,7 @@ Helmet is configured with **explicit directives** to make every header intention
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME sniffing attacks |
 | `X-Frame-Options` | `DENY` | Blocks iframe embedding / clickjacking |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer exposure |
-| `X-XSS-Protection` | `0` | Disables legacy browser XSS filter; defers to CSP |
+| `X-XSS-Protection` | `0` | Disables legacy browser XSS filter (helmet v5+ always sends `0`); defers to CSP |
 | `X-Powered-By` | *(removed)* | Hidden via `hidePoweredBy` |
 
 To audit the live headers, run:

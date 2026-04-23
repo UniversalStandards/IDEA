@@ -77,7 +77,9 @@ export class Server {
         },
         // Prevent browsers from MIME-sniffing response content
         noSniff: true,
-        // X-XSS-Protection: 0 — modern recommendation; rely on CSP instead
+        // X-XSS-Protection: 0 — helmet v5+ sets this value when xssFilter is enabled.
+        // The `0` disables the legacy browser XSS auditor; modern guidance is to
+        // rely on Content-Security-Policy instead of the deprecated X-XSS-Protection header.
         xssFilter: true,
         // Additional sensible defaults kept explicit
         frameguard: { action: 'deny' },
@@ -126,8 +128,9 @@ export class Server {
 
     // ── Body parsers ──────────────────────────────────────────────────────
     // Admin routes use a tight 1 mb limit; the REST adapter uses 10 mb.
-    // Mount per-prefix parsers before the routes so limits are enforced
-    // at the correct boundary.
+    // The two /admin registrations are intentionally separate — one handles
+    // JSON payloads, the other URL-encoded forms. Express will stop at the
+    // first matching parser per request, so ordering matters.
     this.app.use('/admin', express.json({ limit: ADMIN_BODY_LIMIT }));
     this.app.use('/admin', express.urlencoded({ extended: true, limit: ADMIN_BODY_LIMIT }));
     this.app.use(express.json({ limit: DEFAULT_BODY_LIMIT }));
