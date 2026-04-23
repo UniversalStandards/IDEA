@@ -1,0 +1,177 @@
+name: Deploy to Netlify
+
+# Handles both preview (pull requests) and production (push to main) deployments
+# to Netlify.
+#
+# Required secrets:
+#   NETLIFY_AUTH_TOKEN  — personal access token from app.netlify.com/user/applications
+#   NETLIFY_SITE_ID     — API ID of the target Netlify site (Site settings → General)
+#
+# Required environments (repo Settings → Environments):
+#   preview     — used for PR deployments
+#   production  — used for main-branch deployments
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-netlify.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-netlify.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment target
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+concurrency:
+  group: netlify-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# ──────────────────────────────────────────────────────────
+# Preview deployment — runs on pull requests
+# ──────────────────────────────────────────────────────────
+jobs:
+  deploy-preview:
+    name: Deploy preview to Netlify
+    runs-on: ubuntu-latest
+    if: >
+      hashFiles('web/package.json') != '' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'preview'))
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.deploy-url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Build frontend
+        run: npm run build
+        working-directory: web
+
+      - name: Check Netlify configuration
+        id: netlify-config
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -n "$NETLIFY_AUTH_TOKEN" ] && [ -n "$NETLIFY_SITE_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Netlify secrets are not configured; skipping preview deployment."
+          fi
+
+      - name: Deploy preview to Netlify
+        id: deploy
+        if: steps.netlify-config.outputs.enabled == 'true'
+        uses: nwtgck/actions-netlify@v3
+        with:
+          publish-dir: web/out
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: >
+            Preview deploy for
+            ${{ github.event.pull_request.number && format('PR #{0} — {1}', github.event.pull_request.number, github.event.pull_request.title) || format('ref {0} @ {1}', github.ref_name, github.sha) }}
+          enable-pull-request-comment: ${{ github.event_name == 'pull_request' }}
+          enable-commit-comment: false
+          overwrites-pull-request-comment: true
+          netlify-config-path: web/netlify.toml
+          alias: ${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref_name }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        timeout-minutes: 10
+
+  # ──────────────────────────────────────────────────────────
+  # Production deployment — runs on push to main
+  # ──────────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy production to Netlify
+    runs-on: ubuntu-latest
+    if: >
+      hashFiles('web/package.json') != '' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'production'))
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.deploy-url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Build frontend for production
+        run: npm run build
+        working-directory: web
+        env:
+          NODE_ENV: production
+
+      - name: Check Netlify configuration
+        id: netlify-config
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          if [ -n "$NETLIFY_AUTH_TOKEN" ] && [ -n "$NETLIFY_SITE_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Netlify secrets are not configured; skipping production deployment."
+          fi
+
+      - name: Deploy production to Netlify
+        id: deploy
+        if: steps.netlify-config.outputs.enabled == 'true'
+        uses: nwtgck/actions-netlify@v3
+        with:
+          publish-dir: web/out
+          production-deploy: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          deploy-message: >
+            Production deploy — ${{ github.ref_name }} @
+            ${{ github.sha }}
+          enable-pull-request-comment: false
+          enable-commit-comment: true
+          netlify-config-path: web/netlify.toml
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        timeout-minutes: 10
