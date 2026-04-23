@@ -163,7 +163,9 @@ export class Installer extends EventEmitter {
     }
 
     // Set up the per-package lock for this install run.
-    let resolveLock!: () => void;
+    // Initialize to a no-op so TypeScript is satisfied; the Promise executor
+    // assigns the real resolver synchronously before it is ever called.
+    let resolveLock: () => void = () => undefined;
     const lockPromise = new Promise<void>((resolve) => {
       resolveLock = resolve;
     });
@@ -453,14 +455,12 @@ export class Installer extends EventEmitter {
       });
 
       try {
-        const result = await execFileAsync(
+        const { stdout, stderr } = await execFileAsync(
           'npm',
           ['install', '--save', '--no-audit', '--no-fund', ...packages],
           { cwd: installDir, timeout: 120_000 },
-        ) as unknown as { stdout: string; stderr: string };
+        );
 
-        const stdout = result?.stdout ?? '';
-        const stderr = result?.stderr ?? '';
         if (stdout.trim()) logger.debug('npm stdout', { toolId: tool.id, stdout: stdout.trim() });
         if (stderr.trim()) logger.debug('npm stderr', { toolId: tool.id, stderr: stderr.trim() });
       } catch (err) {

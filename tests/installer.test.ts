@@ -383,6 +383,12 @@ describe('Installer', () => {
     const tool = makeTool();
     const order: number[] = [];
 
+    // Use explicit promise handshakes for deterministic coordination.
+    let firstDownloadStarted!: () => void;
+    const firstDownloadSignal = new Promise<void>((resolve) => {
+      firstDownloadStarted = resolve;
+    });
+
     let firstInstallUnblock!: () => void;
     const firstInstallBlock = new Promise<void>((resolve) => {
       firstInstallUnblock = resolve;
@@ -391,7 +397,8 @@ describe('Installer', () => {
     jest
       .spyOn(installer as unknown as TestableInstaller, 'npmInstall')
       .mockImplementationOnce(async () => {
-        await firstInstallBlock; // Hold the first install until we unblock
+        firstDownloadStarted(); // Signal: first install has acquired the lock
+        await firstInstallBlock; // Hold until explicitly unblocked
         order.push(1);
         return MOCK_INSTALL_PATH;
       })
@@ -401,12 +408,13 @@ describe('Installer', () => {
       });
 
     const first = installer.install(tool);
-    // Give the first install time to acquire the lock before starting second.
-    await new Promise<void>((r) => setTimeout(r, 20));
+
+    // Wait until the first install is inside npmInstall (lock is held).
+    await firstDownloadSignal;
 
     const second = installer.install({ ...tool, id: 'tool-test-id-2' });
 
-    // Unblock the first install; second should then run
+    // Unblock the first install; second should run only after first completes.
     firstInstallUnblock();
     await Promise.all([first, second]);
 
