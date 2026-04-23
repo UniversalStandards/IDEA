@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import * as http from 'http';
+import { randomUUID } from 'crypto';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLogger } from '../observability/logger';
 import { type Config } from '../config';
@@ -20,7 +21,22 @@ import { MCPAdapter } from '../adapters/mcp/index';
 import { runtimeManager } from './runtime-manager';
 import { lifecycle } from './lifecycle';
 
+// Augment Express Request to carry the correlation ID set by the global middleware.
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      requestId?: string;
+    }
+  }
+}
+
 const logger = createLogger('server');
+
+/** Body size limit for the protected admin API — intentionally strict. */
+const ADMIN_BODY_LIMIT = '1mb';
+/** Body size limit for the general REST adapter — allows larger payloads. */
+const DEFAULT_BODY_LIMIT = '10mb';
 
 export class Server {
   private app: Express;
@@ -36,7 +52,41 @@ export class Server {
     logger.info('Starting server...');
 
     // ── Security middleware ────────────────────────────────────────────────
-    this.app.use(helmet());
+    // Explicit helmet directives — do not rely on defaults so that every
+    // header is intentional and reviewable.
+    this.app.use(
+      helmet({
+        contentSecurityPolicy: {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'none'"],
+            styleSrc: ["'none'"],
+            imgSrc: ["'none'"],
+            connectSrc: ["'self'"],
+            fontSrc: ["'none'"],
+            objectSrc: ["'none'"],
+            mediaSrc: ["'none'"],
+            frameSrc: ["'none'"],
+          },
+        },
+        // HSTS — force HTTPS for 1 year, including sub-domains, opt in to preload
+        hsts: {
+          maxAge: 31_536_000,
+          includeSubDomains: true,
+          preload: true,
+        },
+        // Prevent browsers from MIME-sniffing response content
+        noSniff: true,
+        // X-XSS-Protection: 0 — helmet v5+ sets this value when xssFilter is enabled.
+        // The `0` disables the legacy browser XSS auditor; modern guidance is to
+        // rely on Content-Security-Policy instead of the deprecated X-XSS-Protection header.
+        xssFilter: true,
+        // Additional sensible defaults kept explicit
+        frameguard: { action: 'deny' },
+        hidePoweredBy: true,
+        referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      }),
+    );
 
     const corsOriginRaw = this.cfg.CORS_ORIGIN ?? '*';
     const isWildcard = corsOriginRaw === '*';
@@ -55,12 +105,35 @@ export class Server {
           }
         },
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+        exposedHeaders: ['X-Request-ID'],
+        // credentials: true is only safe with a non-wildcard origin allowlist
         credentials: !isWildcard,
       }),
     );
 
-    this.app.use(express.json({ limit: '10mb' }));
+    // ── Global X-Request-ID middleware ────────────────────────────────────
+    // Propagate an incoming X-Request-ID or generate a new one. The ID is
+    // attached to every response so clients can correlate logs.
+    this.app.use((req: Request, res: Response, next: NextFunction) => {
+      const incoming = req.headers['x-request-id'];
+      const requestId = (typeof incoming === 'string' && incoming.length > 0)
+        ? incoming
+        : randomUUID();
+      res.setHeader('X-Request-ID', requestId);
+      // Attach to request object for downstream handler logging (Express.Request augmentation above)
+      req.requestId = requestId;
+      next();
+    });
+
+    // ── Body parsers ──────────────────────────────────────────────────────
+    // Admin routes use a tight 1 mb limit; the REST adapter uses 10 mb.
+    // The two /admin registrations are intentionally separate — one handles
+    // JSON payloads, the other URL-encoded forms. Express will stop at the
+    // first matching parser per request, so ordering matters.
+    this.app.use('/admin', express.json({ limit: ADMIN_BODY_LIMIT }));
+    this.app.use('/admin', express.urlencoded({ extended: true, limit: ADMIN_BODY_LIMIT }));
+    this.app.use(express.json({ limit: DEFAULT_BODY_LIMIT }));
     this.app.use(express.urlencoded({ extended: true }));
 
     // ── Rate limiting — driven by config vars (AGENTS.md 4.2) ────────────────
