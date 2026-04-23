@@ -34,7 +34,7 @@ interface CostsProps {
 }
 
 export function Costs({ token: _token }: CostsProps) {
-  const [window_, setWindow_] = useState(24);
+  const [timeWindowHours, setTimeWindowHours] = useState(24);
   const totalToday = MOCK_COSTS.reduce((s, c) => s + c.costUsd, 0);
   const budgetPct = Math.min(100, (totalToday / BUDGET_DAILY) * 100);
 
@@ -45,7 +45,7 @@ export function Costs({ token: _token }: CostsProps) {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Costs</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">AI provider usage and spending</p>
         </div>
-        <select value={window_} onChange={(e) => setWindow_(Number(e.target.value))} className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+        <select value={timeWindowHours} onChange={(e) => setTimeWindowHours(Number(e.target.value))} className="px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
           <option value={24}>Last 24h</option>
           <option value={168}>Last 7 days</option>
           <option value={720}>Last 30 days</option>
@@ -94,7 +94,7 @@ export function Costs({ token: _token }: CostsProps) {
           <p className="text-xs text-gray-500 dark:text-gray-400">{budgetPct.toFixed(1)}% of daily budget used</p>
 
           <div className="mt-6">
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Window: {window_}h</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">Window: {timeWindowHours}h</p>
             <p className="text-xs text-gray-400 dark:text-gray-500">Data updates every 60 seconds</p>
           </div>
         </div>

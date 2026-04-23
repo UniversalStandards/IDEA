@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 interface ApiState<T> {
   data: T | null;
@@ -13,13 +13,17 @@ export function useApi<T>(fetchFn: () => Promise<unknown>, deps: unknown[] = [])
   const [error, setError] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
 
+  // Keep fetchFn ref current so the effect always calls the latest version
+  const fetchFnRef = useRef(fetchFn);
+  useEffect(() => { fetchFnRef.current = fetchFn; });
+
   const refetch = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchFn()
+    fetchFnRef.current()
       .then((result) => {
         if (!cancelled) {
           setData(result as T);
@@ -33,6 +37,7 @@ export function useApi<T>(fetchFn: () => Promise<unknown>, deps: unknown[] = [])
         }
       });
     return () => { cancelled = true; };
+    // deps + tick drive re-fetches; fetchFnRef.current is always up-to-date
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick, ...deps]);
 
