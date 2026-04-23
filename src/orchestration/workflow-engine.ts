@@ -14,12 +14,19 @@ const DLQ_FILE = path.join(RUNTIME_DIR, 'workflow-dlq.jsonl');
 /**
  * Sanitizes a workflow ID so it is safe to use as a file-name component.
  * Only alphanumeric characters, hyphens, underscores, and dots are permitted.
- * The returned string is verified to remain inside WORKFLOWS_DIR.
+ * `path.basename` strips any remaining path separators, and the final resolved
+ * path is verified to remain inside WORKFLOWS_DIR to prevent path traversal.
  */
 function safeWorkflowPath(workflowId: string): string {
-  const sanitized = workflowId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  // Strip all non-safe characters first, then extract just the basename to
+  // ensure no directory traversal components remain.
+  const sanitized = path.basename(workflowId.replace(/[^a-zA-Z0-9._-]/g, '_'));
+  if (!sanitized || sanitized === '.' || sanitized === '..') {
+    throw new Error(`Invalid workflowId: ${workflowId}`);
+  }
   const resolved = path.resolve(WORKFLOWS_DIR, `${sanitized}.json`);
-  if (!resolved.startsWith(WORKFLOWS_DIR + path.sep) && resolved !== WORKFLOWS_DIR) {
+  // Verify the resolved path is strictly inside the workflows directory.
+  if (!resolved.startsWith(WORKFLOWS_DIR + path.sep)) {
     throw new Error(`Invalid workflowId (path escape detected): ${workflowId}`);
   }
   return resolved;
