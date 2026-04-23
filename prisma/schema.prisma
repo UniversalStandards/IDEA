@@ -1,6 +1,6 @@
 // prisma/schema.prisma
 // Universal MCP Orchestration Hub — Database schema
-// Supports PostgreSQL (production) and SQLite (local dev / tests)
+// Production database: PostgreSQL 14+
 
 generator client {
   provider = "prisma-client-js"

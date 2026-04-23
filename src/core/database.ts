@@ -37,12 +37,13 @@ export function getDatabase(): PrismaClient {
   return _client;
 }
 
-/** Convenience export — use this in application code. */
-export const db: PrismaClient = new Proxy({} as PrismaClient, {
-  get(_target, prop) {
-    return getDatabase()[prop as keyof PrismaClient];
-  },
-});
+/**
+ * Typed database accessor. Prefer this over calling getDatabase() directly in
+ * application code so that TypeScript can fully resolve all Prisma model types.
+ */
+export function db(): PrismaClient {
+  return getDatabase();
+}
 
 // ── Lifecycle helpers ─────────────────────────────────────────────────────────
 
