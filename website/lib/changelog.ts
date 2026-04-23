@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { Marked } from 'marked';
+import DOMPurify from 'isomorphic-dompurify';
 
 const markedInstance = new Marked();
 
@@ -23,7 +24,8 @@ function readChangelogContent(): string {
 
 export function getChangelog(): string {
   const content = readChangelogContent();
-  // Source is a trusted local file — synchronous parse via Marked instance
-  const result = markedInstance.parse(content);
-  return typeof result === 'string' ? result : '# Changelog\n\nNo changelog available.';
+  const html = markedInstance.parse(content);
+  // Sanitize to guard against XSS if CHANGELOG.md ever contains unsafe HTML
+  // (defense in depth — content is a trusted local file but sanitization is cheap)
+  return DOMPurify.sanitize(typeof html === 'string' ? html : '');
 }
