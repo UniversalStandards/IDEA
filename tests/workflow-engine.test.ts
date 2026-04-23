@@ -52,13 +52,16 @@ function makeStep(overrides: Partial<WorkflowStep> = {}): WorkflowStep {
   };
 }
 
+let workflowCounter = 0;
+
 function makeWorkflow(
   steps: WorkflowStep[],
   enabled = true,
   trigger: Workflow['trigger'] = { type: 'manual', config: {} },
 ): Workflow {
+  workflowCounter += 1;
   return {
-    id: `wf-${String(Math.random()).slice(2)}`,
+    id: `wf-${String(workflowCounter)}`,
     name: 'Test Workflow',
     trigger,
     steps,
@@ -73,6 +76,7 @@ describe('WorkflowEngine', () => {
 
   beforeEach(() => {
     stepCounter = 0;
+    workflowCounter = 0;
     engine = new WorkflowEngine();
     // Ensure the axios mock resolves successfully for each test
     mockAxiosRequest.mockResolvedValue({ status: 200, data: { ok: true } });
@@ -299,10 +303,14 @@ describe('WorkflowEngine', () => {
       const completeSpy = jest.fn();
       engine.on('workflow:completed', completeSpy);
 
-      // Emit the trigger event and wait briefly for the async trigger to fire
+      // Emit the trigger event; the async trigger schedules a microtask via trigger()
       engine.emit('test:my-event', { data: 'payload' });
 
-      await new Promise((resolve) => setTimeout(resolve, 50));
+      // Flush all pending microtasks/promises so the async trigger can complete
+      await Promise.resolve();
+      // Give the workflow trigger one tick to reach completion
+      await new Promise((resolve) => setImmediate(resolve));
+
       expect(completeSpy).toHaveBeenCalledWith(
         expect.objectContaining({ workflowId: 'event-wf' }),
       );
