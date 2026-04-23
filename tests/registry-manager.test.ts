@@ -224,7 +224,7 @@ describe('RegistryManager', () => {
       await manager.listAll();
 
       expect(spy).toHaveBeenCalledTimes(1);
-      const payload: { count: number; durationMs: number; sources: string[] } = spy.mock.calls[0][0];
+      const payload = spy.mock.calls[0][0] as { count: number; durationMs: number; sources: string[] };
       expect(payload.count).toBe(1);
       expect(typeof payload.durationMs).toBe('number');
       expect(payload.sources).toContain('reg-a');

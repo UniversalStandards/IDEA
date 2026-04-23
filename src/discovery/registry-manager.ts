@@ -27,7 +27,7 @@ function deduplicate(tools: ToolMetadata[]): ToolMetadata[] {
     const key = `${tool.name}@${tool.version}`;
     const existing = seen.get(key);
     if (!existing) {
-      seen.set(key, { ...tool, sources: [tool.source, ...(tool.sources ?? [])] });
+      seen.set(key, { ...tool, sources: Array.from(new Set([tool.source, ...(tool.sources ?? [])])) });
       continue;
     }
     // Merge sources — collect all registry names that provide this tool
@@ -140,7 +140,8 @@ export class RegistryManager extends EventEmitter {
     try {
       ttl = config.CACHE_TTL;
     } catch {
-      ttl = parseInt(process.env['CACHE_TTL'] ?? '300', 10) || 300;
+      const parsed = parseInt(process.env['CACHE_TTL'] ?? '300', 10);
+      ttl = Number.isNaN(parsed) ? 300 : parsed;
     }
     this.cache = new NodeCache({ stdTTL: ttl, checkperiod: 60 });
   }
@@ -245,6 +246,7 @@ export class RegistryManager extends EventEmitter {
         logger.warn('Registry list failed', {
           registry: registry.name,
           error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+          stack: result.reason instanceof Error ? result.reason.stack : undefined,
         });
       }
     }
