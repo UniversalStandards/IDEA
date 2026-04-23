@@ -30,6 +30,7 @@ services:
       ENABLE_AUDIT_LOGGING: "true"
       COST_TRACKING_ENABLED: "true"
       REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgresql://mcp_user:mcp_password@postgres:5432/mcp_hub
     volumes:
       - hub-runtime:/app/runtime
       - hub-logs:/app/logs
@@ -38,6 +39,8 @@ services:
       - hub-net
     depends_on:
       redis:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     healthcheck:
       test:
@@ -70,12 +73,35 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: mcp-postgres
+    restart: unless-stopped
+    # PostgreSQL is NOT exposed to the host; only accessible within hub-net
+    expose:
+      - "5432"
+    environment:
+      POSTGRES_DB: mcp_hub
+      POSTGRES_USER: mcp_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mcp_password}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - hub-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mcp_user -d mcp_hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   hub-runtime:
     driver: local
   hub-logs:
     driver: local
   redis-data:
+    driver: local
+  postgres-data:
     driver: local
 
 networks:

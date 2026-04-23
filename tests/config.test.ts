@@ -126,4 +126,21 @@ describe('Config', () => {
     const cfg = validateConfig();
     expect(cfg.COST_BUDGET_DAILY_USD).toBeCloseTo(9.99);
   });
+
+  it('accepts a valid DATABASE_URL', () => {
+    process.env['DATABASE_URL'] = 'postgresql://user:pass@localhost:5432/mydb';
+    const cfg = validateConfig();
+    expect(cfg.DATABASE_URL).toBe('postgresql://user:pass@localhost:5432/mydb');
+  });
+
+  it('rejects an invalid DATABASE_URL', () => {
+    process.env['DATABASE_URL'] = 'not-a-url';
+    expect(() => validateConfig()).toThrow('Configuration validation failed');
+  });
+
+  it('allows DATABASE_URL to be omitted (optional)', () => {
+    delete process.env['DATABASE_URL'];
+    const cfg = validateConfig();
+    expect(cfg.DATABASE_URL).toBeUndefined();
+  });
 });

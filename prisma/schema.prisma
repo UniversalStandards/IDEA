@@ -1,0 +1,75 @@
+// prisma/schema.prisma
+// Universal MCP Orchestration Hub — Database schema
+// Supports PostgreSQL (production) and SQLite (local dev / tests)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  OPERATOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  passwordHash  String
+  role          Role     @default(USER)
+  emailVerified Boolean  @default(false)
+  totpSecret    String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  apiKeys       ApiKey[]
+  refreshTokens RefreshToken[]
+  auditEntries  AuditEntry[]
+}
+
+model ApiKey {
+  id        String    @id @default(cuid())
+  userId    String
+  name      String
+  keyHash   String    @unique
+  lastUsed  DateTime?
+  expiresAt DateTime?
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AuditEntry {
+  id            String   @id @default(cuid())
+  userId        String?
+  action        String
+  resourceType  String?
+  resourceId    String?
+  metadata      Json?
+  ipAddress     String?
+  correlationId String?
+  hmac          String
+  createdAt     DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id])
+}
