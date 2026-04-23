@@ -5,6 +5,7 @@
  */
 
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import path from 'path';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -77,6 +78,13 @@ export class Server {
     this.app.use('/health', healthRouter);
     this.app.use('/status', statusRouter);
     this.app.use('/admin', adminRouter);
+
+    // ── Serve Admin UI static files ──────────────────────────────────────
+    const webDistPath = path.join(__dirname, '../../web/dist');
+    this.app.use('/admin-ui', express.static(webDistPath));
+    this.app.get('/admin-ui/*', (_req: Request, res: Response) => {
+      res.sendFile(path.join(webDistPath, 'index.html'));
+    });
 
     // REST API adapter mounts its own routes onto the app
     createRestAdapter(this.app);

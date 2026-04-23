@@ -83,3 +83,7 @@ temp/
 
 # Docker
 .docker/
+
+# Web admin dashboard build
+web/node_modules/
+web/dist/
