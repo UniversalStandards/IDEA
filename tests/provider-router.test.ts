@@ -107,10 +107,11 @@ describe('ProviderRouter — routing', () => {
   });
 
   it('returns null when all providers in the chain have their circuits OPEN', () => {
+    // ProviderRouter initializes with 4 built-in providers; open all of them
     openCircuit(router, 'openai');
     openCircuit(router, 'anthropic');
     openCircuit(router, 'ollama');
-    openCircuit(router, 'google'); // built-in provider still present; open its circuit too
+    openCircuit(router, 'google'); // 4th built-in provider; must be opened too
 
     const result = router.route({ capability: 'chat' });
     expect(result).toBeNull();
@@ -291,11 +292,20 @@ describe('ProviderRouter — background health polling', () => {
 
   it('does not start a second interval when initialize() is called twice', () => {
     router.initialize();
+    const callsAfterFirst = mockedAxios.get.mock.calls.length;
+
+    // Trigger one poll cycle
+    jest.advanceTimersByTime(60_000);
+    const callsAfterOneCycle = mockedAxios.get.mock.calls.length;
+
+    // Second initialize() must be a no-op
     router.initialize();
     jest.advanceTimersByTime(60_000);
-    // Number of calls should equal the number of built-in providers (4), not 8
-    const callCount = mockedAxios.get.mock.calls.length;
-    expect(callCount).toBeLessThanOrEqual(4);
+
+    // The number of calls after the second interval tick should equal
+    // one cycle (not two), confirming no second interval was registered.
+    const callsAfterSecondTick = mockedAxios.get.mock.calls.length;
+    expect(callsAfterSecondTick - callsAfterOneCycle).toBe(callsAfterOneCycle - callsAfterFirst);
   });
 
   it('stops polling after shutdown()', () => {
