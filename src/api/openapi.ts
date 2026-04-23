@@ -74,8 +74,8 @@ const CostsResponseSchema = z
     requestCount: z.number().int().openapi({ example: 0 }),
     byProvider: z.record(z.unknown()),
     byModel: z.record(z.unknown()),
-    from: z.string().openapi({ example: '2026-04-22T20:00:00.000Z' }),
-    to: z.string().openapi({ example: '2026-04-23T20:00:00.000Z' }),
+    from: z.string().openapi({ example: '2025-04-22T20:00:00.000Z' }),
+    to: z.string().openapi({ example: '2025-04-23T20:00:00.000Z' }),
   })
   .openapi('CostsResponse');
 
@@ -402,20 +402,28 @@ export function _resetSpecCache(): void {
 export const openapiRouter = Router();
 
 /**
+ * Build the server URL from configuration rather than trusting request headers.
+ * The `PUBLIC_URL` env var takes precedence, then fallback to http://localhost:<PORT>.
+ * Never trust the `Host` header to prevent Host header injection attacks.
+ */
+function getServerUrl(): string {
+  const publicUrl = process.env['PUBLIC_URL'];
+  if (publicUrl) return publicUrl.replace(/\/$/, '');
+  const port = process.env['PORT'] ?? '3000';
+  return `http://localhost:${port}`;
+}
+
+/**
  * GET /openapi.json
  * Serves the generated OpenAPI 3.1 spec as JSON.
- * CORS is enabled unconditionally so external tools (Swagger Editor, Postman, etc.)
- * can fetch the spec without additional headers.
+ * CORS is open (*) on this endpoint intentionally — the spec is static, schema-only
+ * documentation that contains no credentials or user data. This lets external tools
+ * (Swagger Editor, Postman, VS Code REST Client, etc.) fetch it without extra headers.
  */
-openapiRouter.get('/openapi.json', (req: Request, res: Response) => {
+openapiRouter.get('/openapi.json', (_req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'public, max-age=3600');
-
-  const protocol = (req.headers['x-forwarded-proto'] as string | undefined) ?? req.protocol;
-  const host = req.headers['host'] ?? `localhost:${process.env['PORT'] ?? '3000'}`;
-  const serverUrl = `${protocol}://${host}`;
-
-  res.json(generateSpec(serverUrl));
+  res.json(generateSpec(getServerUrl()));
 });
 
 /**
@@ -436,10 +444,5 @@ openapiRouter.get('/docs', (req: Request, res: Response, next: NextFunction) => 
     return;
   }
 
-  const protocol = (req.headers['x-forwarded-proto'] as string | undefined) ?? req.protocol;
-  const host = req.headers['host'] ?? `localhost:${process.env['PORT'] ?? '3000'}`;
-  const serverUrl = `${protocol}://${host}`;
-  const spec = generateSpec(serverUrl);
-
-  swaggerUi.setup(spec)(req, res, next);
+  swaggerUi.setup(generateSpec(getServerUrl()))(req, res, next);
 });
