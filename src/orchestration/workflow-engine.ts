@@ -190,8 +190,16 @@ export class WorkflowEngine extends EventEmitter {
   }
 
   /**
-   * Request cancellation of any in-progress (or future) run for the given workflowId.
-   * The cancellation is checked between steps, so the current step completes before stopping.
+   * Request cancellation of any in-progress run for the given workflowId.
+   *
+   * Cancellation is cooperative: the running workflow loop checks for the
+   * cancellation flag **before** starting each new step, so the currently
+   * executing step will still complete before execution stops.  Callers
+   * should listen for the `workflow:cancelled` event to be notified when
+   * the workflow has fully stopped.
+   *
+   * @param workflowId - The ID of the registered workflow to cancel.
+   * @throws Error if no workflow with the given ID has been registered.
    */
   async cancelWorkflow(workflowId: string): Promise<void> {
     if (!this.workflows.has(workflowId)) {
@@ -420,8 +428,15 @@ export class WorkflowEngine extends EventEmitter {
   }
 
   /**
-   * Loads a previously persisted workflow run state from disk.
-   * Returns null if no state file exists for the given workflowId.
+   * Loads a previously persisted workflow run state from disk for crash recovery.
+   *
+   * Use this after a process restart to inspect or resume a workflow that was
+   * in progress when the process exited.  State files are written after each
+   * step and removed on normal completion, so a file present at startup
+   * indicates the workflow was interrupted mid-run.
+   *
+   * @param workflowId - The ID of the workflow whose state to load.
+   * @returns The deserialized `WorkflowRunResult` or `null` if no state file exists.
    */
   loadPersistedState(workflowId: string): WorkflowRunResult | null {
     try {

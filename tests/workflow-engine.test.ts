@@ -51,8 +51,11 @@ function makeWorkflow(
   };
 }
 
+// jest.spyOn requires access to private methods that cannot be expressed with a
+// non-any type due to TypeScript's private modifier being compile-time only.
+// The `any` cast here is intentional and scoped to test helper infrastructure.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyEngine = any;
+type AnyEngine = any; // workaround for jest.spyOn on private/protected methods
 
 describe('WorkflowEngine', () => {
   let engine: WorkflowEngine;
