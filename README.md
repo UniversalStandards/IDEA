@@ -224,6 +224,53 @@ docker compose up
 
 ---
 
+## 7.1 Database Setup
+
+The hub uses **PostgreSQL** (via Prisma ORM) to persist users, API keys, refresh tokens, and audit entries.
+
+### Prerequisites
+
+- PostgreSQL 14+ **or** use the bundled Docker Compose service (see below)
+
+### Environment variable
+
+Add your connection string to `.env`:
+
+```dotenv
+DATABASE_URL=postgresql://mcp_user:mcp_password@localhost:5432/mcp_hub
+```
+
+> **SQLite** (for local testing only): `DATABASE_URL=file:./dev.db`  
+> SQLite does not support all PostgreSQL features and should not be used in production.
+
+### Apply migrations
+
+```bash
+# Apply all pending migrations (development — creates the DB if missing)
+npm run db:migrate
+
+# Apply pending migrations without prompts (production / CI)
+npm run db:migrate:deploy
+
+# Regenerate Prisma TypeScript client after schema changes
+npm run db:generate
+
+# Open Prisma Studio (visual database browser)
+npm run db:studio
+```
+
+### Docker Compose (PostgreSQL included)
+
+The `docker-compose.yml` includes a `postgres:16-alpine` service. Start the full stack:
+
+```bash
+docker compose up
+```
+
+The hub service will wait for PostgreSQL to be healthy before starting.
+
+---
+
 ## 8.0 Advanced Features
 
 ### 8.1 Capability Graph

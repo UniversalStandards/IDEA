@@ -104,6 +104,9 @@ const ConfigSchema = z.object({
   ENABLE_AUTO_UPDATES: boolEnv(false),
   ENABLE_RUNTIME_HEALTH_RECOVERY: boolEnv(true),
 
+  // Database
+  DATABASE_URL: z.string().url().optional(),
+
   // Redis (future distributed caching)
   REDIS_URL: z.string().url().optional(),
 
