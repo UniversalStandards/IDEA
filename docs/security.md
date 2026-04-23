@@ -67,6 +67,21 @@ Each entry is HMAC-SHA256 signed over `{ id, action, actor, resource, outcome, c
 ### Storage
 Entries are appended as JSONL to `runtime/audit.jsonl`. Rotation and archival are managed by the operator (e.g., logrotate or a sidecar).
 
+### Retention Policy
+
+| Tier | Window | Location | Notes |
+|---|---|---|---|
+| **Hot** | 0 – `AUDIT_RETENTION_DAYS` days (default 90) | `runtime/audit.jsonl` | Live, writable by hub |
+| **Warm archive** | 90 days – 1 year | `runtime/audit-archive/*.gz` | Gzip-compressed, read-only |
+| **Cold archive** | > 1 year | Operator off-site storage | S3 / GCS / Azure Blob |
+| **Purge** | After cold copy confirmed | — | Delete warm copy only after HMAC verification passes |
+
+**Rotation triggers** (either condition, whichever occurs first):
+- File size exceeds 100 MB
+- Daily cron (logrotate `daily`)
+
+**HMAC verification before purge**: run `tsx scripts/verify-audit-log.ts <file>` and confirm exit code `0` before removing any archive copy. See `docs/deployment.md §7` for the full operator runbook.
+
 ### Flush on Shutdown
 `auditLog.flush()` is registered in the lifecycle shutdown sequence to drain any buffered entries before process exit.
 

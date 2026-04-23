@@ -111,6 +111,9 @@ const ConfigSchema = z.object({
   ENABLE_METRICS: boolEnv(true),
   ENABLE_TRACING: boolEnv(true),
   ENABLE_AUDIT_LOGGING: boolEnv(true),
+
+  // Audit retention
+  AUDIT_RETENTION_DAYS: intEnv(90, 1, 36500),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

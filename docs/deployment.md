@@ -27,6 +27,7 @@
 | `CACHE_TTL` | int | `300` | No | Discovery cache TTL in seconds. |
 | `MAX_CONCURRENT_INSTALLS` | int | `5` | No | Max parallel package installations. |
 | `ENABLE_AUDIT_LOGGING` | bool | `true` | No | Write HMAC-signed audit entries to `runtime/audit.jsonl`. |
+| `AUDIT_RETENTION_DAYS` | int | `90` | No | Days to keep hot audit log entries before rotation/purge. |
 | `REDIS_URL` | URL | — | No | Redis connection URL (for future distributed caching). |
 
 ---
@@ -250,3 +251,117 @@ To run without external registry access:
 4. Set `ENABLE_LOCAL_WORKSPACE_SCAN=true` to discover tools from the local filesystem
 5. Pre-install all required packages into the container image or a mounted volume
 6. Set `ENABLE_AUTO_UPDATES=false` (default) to prevent any outbound package fetch attempts
+
+---
+
+## 7. Audit Log Retention and Rotation
+
+The hub appends signed audit entries to `runtime/audit.jsonl`.  Operators are
+responsible for rotating and archiving this file according to their compliance
+requirements. The `AUDIT_RETENTION_DAYS` env var (default: `90`) documents the
+**intended** hot retention window; actual enforcement is handled at the OS or
+container level using the mechanisms below.
+
+### 7.1 Retention Policy Summary
+
+| Tier | Duration | Storage | Action |
+|---|---|---|---|
+| **Hot** | 0 – `AUDIT_RETENTION_DAYS` days | `runtime/audit.jsonl` (live file) | Writable by hub |
+| **Warm archive** | `AUDIT_RETENTION_DAYS` – 365 days | `runtime/audit-archive/` (gzip) | Read-only, HMAC-verified |
+| **Cold archive** | > 365 days | Operator-managed off-site storage | Operator responsibility |
+| **Purge** | After cold archive confirmed | — | Delete warm archive copy |
+
+### 7.2 logrotate Configuration
+
+For Linux deployments, create `/etc/logrotate.d/mcp-hub-audit` with the
+following content, adjusting paths to match your installation:
+
+```logrotate
+/opt/mcp-hub/runtime/audit.jsonl {
+    # Rotate when file exceeds 100 MB or daily — whichever comes first
+    daily
+    size 100M
+
+    # Keep 90 days of compressed rotated files (matches AUDIT_RETENTION_DAYS)
+    rotate 90
+
+    # Compress rotated files with gzip
+    compress
+    delaycompress
+
+    # Do not error if the log file is missing
+    missingok
+    notifempty
+
+    # Archive into a dedicated subdirectory
+    olddir /opt/mcp-hub/runtime/audit-archive
+
+    # Create a fresh log file owned by the hub user after rotation
+    create 0640 mcp-hub mcp-hub
+
+    # Send SIGHUP to the hub process after rotation so it re-opens the log file.
+    # Replace <pid-file-path> with the actual PID file for your deployment.
+    postrotate
+        [ -f /var/run/mcp-hub.pid ] && kill -HUP $(cat /var/run/mcp-hub.pid) || true
+    endscript
+}
+```
+
+> **Note:** If you deploy with Docker or Kubernetes, use a log-shipping sidecar
+> (e.g., Fluent Bit, Fluentd, or Vector) instead of logrotate. Mount a shared
+> `emptyDir` volume for `runtime/`, and configure the sidecar to read, ship,
+> and rotate `audit.jsonl`.
+
+### 7.3 Docker / Kubernetes rotation example (Fluent Bit)
+
+Add a sidecar container to the pod spec:
+
+```yaml
+- name: audit-rotator
+  image: fluent/fluent-bit:3
+  volumeMounts:
+    - name: runtime
+      mountPath: /runtime
+  command:
+    - /fluent-bit/bin/fluent-bit
+    - -i
+    - tail
+    - -p
+    - path=/runtime/audit.jsonl
+    - -p
+    - refresh_interval=10
+    - -o
+    - file
+    - -p
+    - path=/runtime/audit-archive
+    - -p
+    - file=/runtime/audit-archive/audit
+```
+
+### 7.4 HMAC Integrity Verification
+
+Before archiving or purging rotated files, verify their integrity with the
+bundled script:
+
+```bash
+# Verify a live or rotated audit log
+ENCRYPTION_KEY=<your-key> tsx scripts/verify-audit-log.ts runtime/audit.jsonl
+
+# Verify a gzip-compressed archive (decompress first)
+gunzip -c runtime/audit-archive/audit.jsonl.1.gz | \
+  ENCRYPTION_KEY=<your-key> tsx scripts/verify-audit-log.ts /dev/stdin
+
+# Fail immediately on first tampered entry
+ENCRYPTION_KEY=<your-key> tsx scripts/verify-audit-log.ts --fail-fast runtime/audit.jsonl
+```
+
+Exit code `0` means all entries passed; exit code `1` means one or more entries
+failed verification. Never purge an archive copy until the script returns `0`.
+
+### 7.5 Purge Procedure
+
+1. Rotate `audit.jsonl` into `runtime/audit-archive/` (logrotate or sidecar).
+2. Run `tsx scripts/verify-audit-log.ts <rotated-file>` and confirm exit code `0`.
+3. Ship the verified archive to cold storage (S3, GCS, Azure Blob, etc.).
+4. After confirming the cold-storage upload is complete, delete the warm archive
+   copy: `rm runtime/audit-archive/audit.jsonl.<N>.gz`.
