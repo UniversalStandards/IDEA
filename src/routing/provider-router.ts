@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
+import { tracer, getTraceFields } from '../observability/tracing';
 import { config } from '../config';
 
 const logger = createLogger('provider-router');
@@ -74,58 +75,65 @@ export class ProviderRouter {
     preferredProvider?: string;
     fallback?: boolean;
   }): AIProvider | null {
-    const defaultId = config.DEFAULT_AI_PROVIDER;
-    const fallbackId = config.FALLBACK_AI_PROVIDER;
-    const localId = config.LOCAL_MODEL_PROVIDER;
+    const span = tracer.startSpan('provider.route');
+    span.setAttributes({ capability: request.capability });
 
-    // Build priority chain
-    const chain: string[] = [];
+    return tracer.withSpanSync(span, () => {
+      const defaultId = config.DEFAULT_AI_PROVIDER;
+      const fallbackId = config.FALLBACK_AI_PROVIDER;
+      const localId = config.LOCAL_MODEL_PROVIDER;
 
-    if (request.preferredProvider) chain.push(request.preferredProvider);
-    chain.push(defaultId);
-    if (request.fallback !== false) {
-      chain.push(fallbackId);
-      chain.push(localId);
-    }
+      // Build priority chain
+      const chain: string[] = [];
 
-    // Deduplicate while preserving order
-    const seen = new Set<string>();
-    const ordered = chain.filter((id) => {
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
-
-    for (const id of ordered) {
-      const provider = this.providers.get(id);
-      if (!provider) continue;
-      if (!provider.capabilities.includes(request.capability)) continue;
-
-      // Check cached health
-      const cached = this.healthCache.get(id);
-      if (cached && Date.now() - cached.checkedAt < this.HEALTH_CACHE_TTL_MS) {
-        if (!cached.healthy) continue;
+      if (request.preferredProvider) chain.push(request.preferredProvider);
+      chain.push(defaultId);
+      if (request.fallback !== false) {
+        chain.push(fallbackId);
+        chain.push(localId);
       }
 
-      metrics.increment('provider_route_total', { providerId: id, capability: request.capability });
-      logger.debug('Provider routed', { providerId: id, capability: request.capability });
-      return provider;
-    }
+      // Deduplicate while preserving order
+      const seen = new Set<string>();
+      const ordered = chain.filter((id) => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        return true;
+      });
 
-    // Last resort: any provider supporting the capability
-    for (const provider of this.providers.values()) {
-      if (provider.capabilities.includes(request.capability)) {
-        metrics.increment('provider_route_total', {
-          providerId: provider.id,
-          capability: request.capability,
-          fallback: 'true',
-        });
+      for (const id of ordered) {
+        const provider = this.providers.get(id);
+        if (!provider) continue;
+        if (!provider.capabilities.includes(request.capability)) continue;
+
+        // Check cached health
+        const cached = this.healthCache.get(id);
+        if (cached && Date.now() - cached.checkedAt < this.HEALTH_CACHE_TTL_MS) {
+          if (!cached.healthy) continue;
+        }
+
+        metrics.increment('provider_route_total', { providerId: id, capability: request.capability });
+        span.setAttribute('provider.id', id);
+        logger.debug('Provider routed', { providerId: id, capability: request.capability, ...getTraceFields() });
         return provider;
       }
-    }
 
-    logger.warn('No provider found for capability', { capability: request.capability });
-    return null;
+      // Last resort: any provider supporting the capability
+      for (const provider of this.providers.values()) {
+        if (provider.capabilities.includes(request.capability)) {
+          metrics.increment('provider_route_total', {
+            providerId: provider.id,
+            capability: request.capability,
+            fallback: 'true',
+          });
+          span.setAttribute('provider.id', provider.id);
+          return provider;
+        }
+      }
+
+      logger.warn('No provider found for capability', { capability: request.capability, ...getTraceFields() });
+      return null;
+    });
   }
 
   async checkHealth(providerId: string): Promise<boolean> {

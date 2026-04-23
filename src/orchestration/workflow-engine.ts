@@ -2,6 +2,7 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
+import { tracer, getTraceFields } from '../observability/tracing';
 
 const logger = createLogger('workflow-engine');
 
@@ -83,7 +84,9 @@ export class WorkflowEngine extends EventEmitter {
 
     const runId = randomUUID();
     const startedAt = new Date();
-    logger.info('Workflow triggered', { runId, workflowId, name: wf.name });
+    const span = tracer.startSpan('workflow.trigger');
+    span.setAttributes({ workflowId, runId, workflowName: wf.name });
+    logger.info('Workflow triggered', { runId, workflowId, name: wf.name, ...getTraceFields() });
     metrics.increment('workflow_runs_total', { workflowId });
 
     const run: WorkflowRunResult = {
@@ -96,12 +99,14 @@ export class WorkflowEngine extends EventEmitter {
     };
 
     try {
-      await this.executeWorkflow(wf, run, input ?? {});
-      run.success = true;
+      await tracer.withSpan(span, async () => {
+        await this.executeWorkflow(wf, run, input ?? {});
+        run.success = true;
+      });
     } catch (err) {
       run.error = err instanceof Error ? err.message : String(err);
       run.success = false;
-      logger.warn('Workflow run failed', { runId, workflowId, error: run.error });
+      logger.warn('Workflow run failed', { runId, workflowId, error: run.error, ...getTraceFields() });
     }
 
     run.completedAt = new Date();
@@ -176,16 +181,20 @@ export class WorkflowEngine extends EventEmitter {
     _input: Record<string, unknown>,
     _prevResults: Record<string, StepRunResult>,
   ): Promise<StepRunResult> {
-    logger.debug('Executing workflow step', { stepId: step.id, action: step.action });
+    logger.debug('Executing workflow step', { stepId: step.id, action: step.action, ...getTraceFields() });
+    const span = tracer.startSpan(`workflow.step.${step.action}`);
+    span.setAttributes({ stepId: step.id, stepName: step.name, action: step.action });
 
-    try {
-      const output = await this.dispatchAction(step.action, step.params ?? {});
-      return { stepId: step.id, success: true, output };
-    } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
-      logger.warn('Workflow step failed', { stepId: step.id, action: step.action, error });
-      return { stepId: step.id, success: false, error };
-    }
+    return tracer.withSpan(span, async () => {
+      try {
+        const output = await this.dispatchAction(step.action, step.params ?? {});
+        return { stepId: step.id, success: true, output };
+      } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        logger.warn('Workflow step failed', { stepId: step.id, action: step.action, error, ...getTraceFields() });
+        return { stepId: step.id, success: false, error };
+      }
+    });
   }
 
   private async dispatchAction(

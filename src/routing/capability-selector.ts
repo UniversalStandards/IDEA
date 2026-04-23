@@ -1,5 +1,6 @@
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
+import { tracer, getTraceFields } from '../observability/tracing';
 import { RegisteredTool } from '../provisioning/runtime-registrar';
 import { NormalizedRequest } from '../normalization/request-normalizer';
 
@@ -32,30 +33,36 @@ export class CapabilitySelector {
     request: NormalizedRequest,
     availableTools: RegisteredTool[],
   ): SelectionResult | null {
-    if (availableTools.length === 0) return null;
+    const span = tracer.startSpan('capability.select');
+    span.setAttributes({ requestId: request.id, requestMethod: request.method, toolCount: availableTools.length });
 
-    const candidates = availableTools.filter(
-      (t) => t.status === 'registered' || t.status === 'running',
-    );
-    if (candidates.length === 0) return null;
+    return tracer.withSpanSync(span, () => {
+      if (availableTools.length === 0) return null;
 
-    const scored = candidates
-      .map((t) => this.scoreTool(t, request))
-      .filter((r): r is SelectionResult => r !== null)
-      .sort((a, b) => b.score - a.score);
+      const candidates = availableTools.filter(
+        (t) => t.status === 'registered' || t.status === 'running',
+      );
+      if (candidates.length === 0) return null;
 
-    if (scored.length === 0) return null;
+      const scored = candidates
+        .map((t) => this.scoreTool(t, request))
+        .filter((r): r is SelectionResult => r !== null)
+        .sort((a, b) => b.score - a.score);
 
-    const best = scored[0];
-    logger.debug('Capability selected', {
-      requestId: request.id,
-      toolId: best.tool.tool.id,
-      score: best.score,
-      reasons: best.reasons,
+      if (scored.length === 0) return null;
+
+      const best = scored[0];
+      logger.debug('Capability selected', {
+        requestId: request.id,
+        toolId: best.tool.tool.id,
+        score: best.score,
+        reasons: best.reasons,
+        ...getTraceFields(),
+      });
+
+      metrics.increment('capability_selections_total', { toolId: best.tool.tool.id });
+      return best;
     });
-
-    metrics.increment('capability_selections_total', { toolId: best.tool.tool.id });
-    return best;
   }
 
   private scoreTool(
