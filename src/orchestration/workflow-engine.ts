@@ -11,6 +11,20 @@ const RUNTIME_DIR = path.join(process.cwd(), 'runtime');
 const WORKFLOWS_DIR = path.join(RUNTIME_DIR, 'workflows');
 const DLQ_FILE = path.join(RUNTIME_DIR, 'workflow-dlq.jsonl');
 
+/**
+ * Sanitizes a workflow ID so it is safe to use as a file-name component.
+ * Only alphanumeric characters, hyphens, underscores, and dots are permitted.
+ * The returned string is verified to remain inside WORKFLOWS_DIR.
+ */
+function safeWorkflowPath(workflowId: string): string {
+  const sanitized = workflowId.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const resolved = path.resolve(WORKFLOWS_DIR, `${sanitized}.json`);
+  if (!resolved.startsWith(WORKFLOWS_DIR + path.sep) && resolved !== WORKFLOWS_DIR) {
+    throw new Error(`Invalid workflowId (path escape detected): ${workflowId}`);
+  }
+  return resolved;
+}
+
 export interface RetryConfig {
   maxRetries: number;
   initialDelayMs: number;
@@ -378,7 +392,7 @@ export class WorkflowEngine extends EventEmitter {
   private persistState(run: WorkflowRunResult): void {
     try {
       this.ensureRuntimeDirs();
-      const filePath = path.join(WORKFLOWS_DIR, `${run.workflowId}.json`);
+      const filePath = safeWorkflowPath(run.workflowId);
       const data = JSON.stringify({ ...run, startedAt: run.startedAt.toISOString() }, null, 2);
       fs.writeFileSync(filePath, data, 'utf8');
     } catch (err) {
@@ -389,7 +403,7 @@ export class WorkflowEngine extends EventEmitter {
   /** Removes the persisted state file for a workflow on completion or failure. */
   private clearPersistedState(workflowId: string): void {
     try {
-      const filePath = path.join(WORKFLOWS_DIR, `${workflowId}.json`);
+      const filePath = safeWorkflowPath(workflowId);
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
       }
@@ -404,7 +418,7 @@ export class WorkflowEngine extends EventEmitter {
    */
   loadPersistedState(workflowId: string): WorkflowRunResult | null {
     try {
-      const filePath = path.join(WORKFLOWS_DIR, `${workflowId}.json`);
+      const filePath = safeWorkflowPath(workflowId);
       if (!fs.existsSync(filePath)) return null;
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = JSON.parse(raw) as WorkflowRunResult & { startedAt: string };
