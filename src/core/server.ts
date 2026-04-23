@@ -11,6 +11,7 @@ import rateLimit from 'express-rate-limit';
 import * as http from 'http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLogger } from '../observability/logger';
+import { tracer } from '../observability/tracing';
 import { type Config } from '../config';
 import { healthRouter } from '../api/health';
 import { statusRouter } from '../api/status';
@@ -34,6 +35,38 @@ export class Server {
 
   async start(): Promise<void> {
     logger.info('Starting server...');
+
+    // ── Request tracing middleware ─────────────────────────────────────────
+    this.app.use((req: Request, res: Response, next: NextFunction): void => {
+      const span = tracer.startSpan(`${req.method} ${req.path}`);
+      span.setAttributes({
+        'http.method': req.method,
+        'http.path': req.path,
+      });
+      res.setHeader('X-Trace-Id', span.traceId);
+      res.setHeader('X-Span-Id', span.spanId);
+
+      let spanFinished = false;
+      res.on('finish', () => {
+        if (spanFinished) return;
+        spanFinished = true;
+        span.setAttribute('http.status_code', res.statusCode);
+        span.finish(res.statusCode >= 500 ? 'error' : 'ok');
+        tracer.recordSpan(span);
+      });
+
+      // AsyncLocalStorage propagates the context through all async continuations
+      // initiated within this run() call, including Express route handlers.
+      tracer.runWithContext(span, () => {
+        logger.debug('Request started', {
+          method: req.method,
+          path: req.path,
+          traceId: span.traceId,
+          spanId: span.spanId,
+        });
+        next();
+      });
+    });
 
     // ── Security middleware ────────────────────────────────────────────────
     this.app.use(helmet());

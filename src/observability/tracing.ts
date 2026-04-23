@@ -22,7 +22,9 @@ export class Span {
     this.traceId = traceId;
     this.name = name;
     this.startTime = Date.now();
-    this.parentSpanId = parentSpanId;
+    if (parentSpanId !== undefined) {
+      this.parentSpanId = parentSpanId;
+    }
   }
 
   setAttribute(key: string, value: string | number | boolean): this {
@@ -110,7 +112,17 @@ export class Tracer {
     });
   }
 
-  private recordSpan(span: Span): void {
+  /**
+   * Runs fn inside the span's async context WITHOUT auto-finishing the span.
+   * Use this when the span lifetime outlives the synchronous call (e.g. HTTP
+   * request middleware), and you will call `span.finish()` + `recordSpan()`
+   * manually at the appropriate time.
+   */
+  runWithContext<T>(span: Span, fn: () => T): T {
+    return this.storage.run({ span }, fn);
+  }
+
+  recordSpan(span: Span): void {
     if (this.completedSpans.length >= this.maxCompletedSpans) {
       this.completedSpans.shift();
     }
@@ -127,3 +139,13 @@ export class Tracer {
 }
 
 export const tracer = new Tracer();
+
+/**
+ * Returns the traceId and spanId of the currently active span, if any.
+ * Useful for including trace context in structured log entries.
+ */
+export function getTraceFields(): { traceId?: string; spanId?: string } {
+  const span = tracer.getActiveSpan();
+  if (!span) return {};
+  return { traceId: span.traceId, spanId: span.spanId };
+}
