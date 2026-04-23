@@ -1,4 +1,5 @@
 import { createLogger } from '../observability/logger';
+import { auditLog } from '../security/audit';
 
 const logger = createLogger('lifecycle');
 
@@ -20,6 +21,9 @@ export class LifecycleManager {
   }
 
   start(): void {
+    // Audit log flush is always the last hook to run (registered first, reversed on shutdown)
+    this.register('audit-log', () => auditLog.flush());
+
     const handler = (signal: string) => async (): Promise<void> => {
       if (this.shuttingDown) return;
       this.shuttingDown = true;

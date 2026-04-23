@@ -11,6 +11,7 @@ import { createLogger } from '../observability/logger';
 import { getConfig } from '../config';
 import { runtimeManager } from '../core/runtime-manager';
 import { auditLog } from '../security/audit';
+import { costMonitor } from '../observability/cost-monitor';
 
 const logger = createLogger('admin-api');
 
@@ -144,16 +145,16 @@ adminRouter.get('/costs', (req: Request, res: Response) => {
   const windowMs = windowHours * 60 * 60 * 1000;
 
   try {
-    // costMonitor will be wired once src/observability/cost-monitor.ts is imported
+    const summary = costMonitor.getCostSummary(windowMs);
     res.json({
       window: `${String(windowHours)}h`,
       windowMs,
-      totalCostUsd: 0,
-      requestCount: 0,
-      byProvider: {},
-      byModel: {},
-      from: new Date(Date.now() - windowMs).toISOString(),
-      to: new Date().toISOString(),
+      totalCostUsd: summary.totalCostUsd,
+      requestCount: summary.requestCount,
+      byProvider: summary.byProvider,
+      byModel: summary.byModel,
+      from: summary.from.toISOString(),
+      to: summary.to.toISOString(),
     });
   } catch (err) {
     logger.error('Failed to retrieve cost data', { err });

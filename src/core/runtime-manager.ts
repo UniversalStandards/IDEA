@@ -9,6 +9,8 @@ import { scheduler } from '../routing/scheduler';
 import { runtimeRegistrar } from '../provisioning/runtime-registrar';
 import { NormalizedRequest } from '../normalization/request-normalizer';
 import { requestNormalizer } from '../normalization/request-normalizer';
+import { graphqlAdapter } from '../adapters/graphql/index';
+import { cliAdapter } from '../adapters/cli/index';
 
 const logger = createLogger('runtime-manager');
 
@@ -52,6 +54,10 @@ export class RuntimeManager {
       // Capability selector is stateless, ready
       logger.info('Capability selector ready');
 
+      // Initialize adapters
+      await graphqlAdapter.initialize();
+      await cliAdapter.initialize();
+
       metrics.increment('runtime_initializations_total');
       this.initialized = true;
       logger.info('Runtime manager initialized successfully');
@@ -81,6 +87,10 @@ export class RuntimeManager {
         }
       }
     }
+
+    // Shut down adapters
+    await graphqlAdapter.shutdown();
+    await cliAdapter.shutdown();
 
     metrics.increment('runtime_shutdowns_total');
     this.initialized = false;
