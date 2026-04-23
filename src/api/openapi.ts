@@ -6,7 +6,7 @@
  *   GET /docs         — Swagger UI (development) / redirect to docs (production)
  */
 
-import { Router, type Request, type Response } from 'express';
+import { Router, type Request, type Response, type NextFunction } from 'express';
 import {
   OpenAPIRegistry,
   OpenApiGeneratorV31,
@@ -21,6 +21,9 @@ import { createLogger } from '../observability/logger';
 extendZodWithOpenApi(z);
 
 const logger = createLogger('openapi');
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { version: pkgVersion } = require('../../package.json') as { version: string };
 
 // ─────────────────────────────────────────────────────────────────
 // Schema definitions (mirrors the validation schemas in admin-api.ts)
@@ -362,14 +365,11 @@ export function generateSpec(serverUrl = 'http://localhost:3000'): OpenAPIObject
 
   const generator = new OpenApiGeneratorV31(registry.definitions);
 
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { version } = require('../../package.json') as { version: string };
-
   _cachedSpec = generator.generateDocument({
     openapi: '3.1.0',
     info: {
       title: 'Universal MCP Orchestration Hub — Admin API',
-      version,
+      version: pkgVersion,
       description:
         'REST Admin API for the Universal MCP Orchestration Hub. ' +
         'All `/admin/*` routes require a valid `Authorization: Bearer <JWT>` header. ' +
@@ -419,11 +419,16 @@ openapiRouter.get('/openapi.json', (req: Request, res: Response) => {
 });
 
 /**
- * GET /docs
- * In development: mounts Swagger UI.
+ * GET /docs (and sub-paths)
+ * Static assets for Swagger UI must be mounted first so CSS/JS bundles are served
+ * before the HTML page handler is reached.
+ *
+ * In development: Swagger UI serves the interactive docs HTML page.
  * In production: redirects to /openapi.json for use with external viewers.
  */
-openapiRouter.get('/docs', (req: Request, res: Response, next) => {
+openapiRouter.use('/docs', swaggerUi.serve);
+
+openapiRouter.get('/docs', (req: Request, res: Response, next: NextFunction) => {
   const env = process.env['NODE_ENV'] ?? 'development';
 
   if (env === 'production') {
@@ -438,6 +443,3 @@ openapiRouter.get('/docs', (req: Request, res: Response, next) => {
 
   swaggerUi.setup(spec)(req, res, next);
 });
-
-// Serve static assets for Swagger UI (CSS, JS bundles, etc.)
-openapiRouter.use('/docs', swaggerUi.serve);

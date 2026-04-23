@@ -18,6 +18,8 @@ jest.mock('../src/observability/logger', () => ({
 }));
 
 import { generateSpec, _resetSpecCache, openapiRouter } from '../src/api/openapi';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { version: pkgVersion } = require('../package.json') as { version: string };
 
 describe('generateSpec()', () => {
   beforeEach(() => {
@@ -90,9 +92,7 @@ describe('generateSpec()', () => {
 
   it('includes the package version in info.version', () => {
     const spec = generateSpec('http://localhost:3000');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { version } = require('../package.json') as { version: string };
-    expect(spec.info.version).toBe(version);
+    expect(spec.info.version).toBe(pkgVersion);
   });
 
   it('includes Apache-2.0 license in info', () => {
