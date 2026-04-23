@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import { appendFileSync, mkdirSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import { join, relative, isAbsolute } from 'path';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
 
@@ -332,8 +332,9 @@ export class WorkflowEngine extends EventEmitter {
       // Sanitize workflowId to prevent path traversal: allow only word chars, hyphens, and dots
       const safeId = run.workflowId.replace(/[^a-zA-Z0-9_\-.]/g, '_');
       const filePath = join(WORKFLOWS_DIR, `${safeId}.json`);
-      // Confirm resolved path is within WORKFLOWS_DIR
-      if (!filePath.startsWith(WORKFLOWS_DIR + '/') && filePath !== join(WORKFLOWS_DIR, `${safeId}.json`)) {
+      // Verify the resolved path remains within WORKFLOWS_DIR
+      const rel = relative(WORKFLOWS_DIR, filePath);
+      if (rel.startsWith('..') || isAbsolute(rel)) {
         logger.warn('Rejected unsafe workflow state path', { workflowId: run.workflowId });
         return;
       }
