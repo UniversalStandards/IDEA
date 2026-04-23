@@ -22,8 +22,8 @@ function readChangelogContent(): string {
 
 export function getChangelog(): string {
   const content = readChangelogContent();
-  const raw = marked.parse(content);
-  const html = typeof raw === 'string' ? raw : 'No changelog available.';
+  // Pass async: false to get a synchronous string result (never a Promise)
+  const html = marked.parse(content, { async: false });
   // Sanitize to prevent XSS in case the source file is ever modified to include unsafe HTML
   return DOMPurify.sanitize(html);
 }
