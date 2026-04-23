@@ -25,7 +25,11 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist coverage .tsbuildinfo",
     "prepare": "npm run build",
-    "pretest": "npm run typecheck"
+    "pretest": "npm run typecheck",
+    "web:dev": "npm run dev --workspace=web",
+    "web:build": "npm run build --workspace=web",
+    "web:test": "npm run test --workspace=web",
+    "web:lint": "npm run lint --workspace=web"
   },
   "repository": {
     "type": "git",
@@ -46,6 +50,7 @@
   "author": "Universal Standards",
   "license": "Apache-2.0",
   "type": "commonjs",
+  "workspaces": ["web"],
   "bugs": {
     "url": "https://github.com/UniversalStandards/IDEA/issues"
   },
