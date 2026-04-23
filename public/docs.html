@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Universal MCP Orchestration Hub documentation — quick start, API reference, adapters, configuration, and deployment guides." />
+  <title>Documentation — Universal MCP Orchestration Hub</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <!-- ── Top navigation ──────────────────────────────────────────────────── -->
+  <header>
+    <nav class="topnav" role="navigation" aria-label="Main navigation">
+      <div class="container">
+        <div class="topnav__inner">
+          <a class="topnav__brand" href="/" aria-label="Universal MCP Orchestration Hub home">
+            <span class="topnav__brand-icon" aria-hidden="true">⚡</span>
+            <span>MCP Hub</span>
+          </a>
+
+          <ul class="topnav__links" role="list">
+            <li><a href="/#features">Features</a></li>
+            <li><a href="/#pricing">Pricing</a></li>
+            <li><a href="/docs.html" class="active">Docs</a></li>
+            <li><a href="/dashboard.html">Dashboard</a></li>
+          </ul>
+
+          <div class="topnav__actions">
+            <a href="/dashboard.html" class="btn btn-primary btn-sm topnav__cta">
+              <span class="topnav__cta-label">Dashboard</span>
+              <span aria-hidden="true">→</span>
+            </a>
+            <button
+              id="nav-burger"
+              class="topnav__burger"
+              aria-controls="nav-drawer"
+              aria-expanded="false"
+              aria-label="Open navigation menu"
+            >
+              <span></span><span></span><span></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Mobile drawer -->
+    <div id="nav-drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Navigation menu">
+      <div id="nav-drawer-backdrop" class="drawer__backdrop" aria-hidden="true"></div>
+      <div class="drawer__panel">
+        <div class="drawer__header">
+          <a class="topnav__brand" href="/">
+            <span class="topnav__brand-icon" aria-hidden="true">⚡</span>
+            <span>MCP Hub</span>
+          </a>
+          <button id="nav-drawer-close" class="drawer__close" aria-label="Close menu">✕</button>
+        </div>
+        <ul class="drawer__nav" role="list">
+          <li><a href="/#features">🧩 Features</a></li>
+          <li><a href="/#pricing">💰 Pricing</a></li>
+          <li><a href="/docs.html" class="active">📚 Documentation</a></li>
+          <li><a href="/dashboard.html">🖥️ Dashboard</a></li>
+        </ul>
+        <div class="drawer__footer">
+          <a href="/dashboard.html" class="btn btn-primary">Dashboard →</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Docs sidebar drawer (mobile) ────────────────────────────────────── -->
+  <div id="docs-sidebar-drawer" class="docs-sidebar-drawer" role="dialog" aria-modal="true" aria-label="Documentation navigation">
+    <div id="docs-sidebar-backdrop" class="docs-sidebar-drawer__backdrop" aria-hidden="true"></div>
+    <div class="docs-sidebar-drawer__panel">
+      <nav aria-label="Documentation navigation (mobile)">
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Getting Started</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#overview" class="active">Overview</a></li>
+            <li><a href="#quickstart">Quick Start</a></li>
+            <li><a href="#installation">Installation</a></li>
+            <li><a href="#configuration">Configuration</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Core Concepts</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#discovery">Discovery</a></li>
+            <li><a href="#provisioning">Provisioning</a></li>
+            <li><a href="#routing">Routing</a></li>
+            <li><a href="#policy">Policy &amp; Trust</a></li>
+            <li><a href="#security">Security</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Adapters</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#adapters">Overview</a></li>
+            <li><a href="#adapter-mcp">MCP</a></li>
+            <li><a href="#adapter-rest">REST</a></li>
+            <li><a href="#adapter-graphql">GraphQL</a></li>
+            <li><a href="#adapter-cli">CLI</a></li>
+            <li><a href="#adapter-events">Events</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Reference</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#api">API Reference</a></li>
+            <li><a href="#env-vars">Environment Variables</a></li>
+            <li><a href="#deployment">Deployment</a></li>
+          </ul>
+        </div>
+      </nav>
+    </div>
+  </div>
+
+  <!-- ── Docs layout ───────────────────────────────────────────────────────── -->
+  <div class="docs-layout" id="main-content">
+    <!-- Desktop sidebar -->
+    <aside class="docs-sidebar" aria-label="Documentation navigation">
+      <nav>
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Getting Started</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#overview" class="active">Overview</a></li>
+            <li><a href="#quickstart">Quick Start</a></li>
+            <li><a href="#installation">Installation</a></li>
+            <li><a href="#configuration">Configuration</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Core Concepts</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#discovery">Discovery</a></li>
+            <li><a href="#provisioning">Provisioning</a></li>
+            <li><a href="#routing">Routing</a></li>
+            <li><a href="#policy">Policy &amp; Trust</a></li>
+            <li><a href="#security">Security</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Adapters</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#adapters">Overview</a></li>
+            <li><a href="#adapter-mcp">MCP</a></li>
+            <li><a href="#adapter-rest">REST</a></li>
+            <li><a href="#adapter-graphql">GraphQL</a></li>
+            <li><a href="#adapter-cli">CLI</a></li>
+            <li><a href="#adapter-events">Events</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar__section">
+          <p class="docs-sidebar__section-title">Reference</p>
+          <ul class="docs-sidebar__links" role="list">
+            <li><a href="#api">API Reference</a></li>
+            <li><a href="#env-vars">Environment Variables</a></li>
+            <li><a href="#deployment">Deployment</a></li>
+          </ul>
+        </div>
+      </nav>
+    </aside>
+
+    <!-- Content area -->
+    <div>
+      <div class="docs-content">
+
+        <!-- Mobile sidebar toggle -->
+        <button id="docs-sidebar-toggle" class="docs-sidebar-toggle" aria-controls="docs-sidebar-drawer" aria-expanded="false">
+          <span aria-hidden="true">☰</span> Browse docs
+        </button>
+
+        <!-- ── Overview ─────────────────────────────────────────────────── -->
+        <section id="overview">
+          <h1>Universal MCP Orchestration Hub</h1>
+          <p>
+            A universal, intelligent, self-provisioning MCP (Model Context Protocol) orchestration
+            platform that automatically discovers, validates, installs, governs, and operates tools,
+            services, agents, and protocol adapters from public registries, private repositories,
+            enterprise catalogs, and local ecosystems on demand.
+          </p>
+
+          <div class="docs-callout">
+            <p>
+              <strong>Apache-2.0 licensed.</strong> Free for commercial use. Contributions welcome
+              via <a href="https://github.com/UniversalStandards/IDEA">GitHub</a>.
+            </p>
+          </div>
+
+          <h2>Key features</h2>
+          <ul>
+            <li>Automatic tool discovery across GitHub, official MCP registries, and private catalogs</li>
+            <li>Zero-touch provisioning — missing tools are installed and configured at runtime</li>
+            <li>Multi-provider AI routing with circuit-breaker and automatic fallback</li>
+            <li>10-stage trust pipeline with policy enforcement and approval gates</li>
+            <li>Universal protocol support: MCP, JSON-RPC, REST, GraphQL, CLI, WebSocket</li>
+            <li>Structured logging, distributed tracing, and cost monitoring</li>
+          </ul>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Quick Start ───────────────────────────────────────────────── -->
+        <section id="quickstart">
+          <h2>Quick Start</h2>
+          <p>Get the hub running locally in under two minutes.</p>
+
+          <h3>Prerequisites</h3>
+          <ul>
+            <li>Node.js ≥ 20.0.0</li>
+            <li>npm ≥ 10.0.0</li>
+            <li>Git</li>
+          </ul>
+
+          <h3>Clone and run</h3>
+          <pre><code>git clone https://github.com/UniversalStandards/IDEA.git
+cd IDEA
+npm ci
+cp .env.example .env
+# Edit .env with your values
+npm run dev</code></pre>
+
+          <p>The hub starts on <code>http://localhost:3000</code> by default.</p>
+
+          <h3>Docker</h3>
+          <pre><code>docker compose up</code></pre>
+
+          <p>
+            Docker Compose starts the hub along with a Redis service for future distributed
+            caching. The hub is available at <code>http://localhost:3000</code>.
+          </p>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Installation ──────────────────────────────────────────────── -->
+        <section id="installation">
+          <h2>Installation</h2>
+
+          <h3>From source</h3>
+          <pre><code>npm ci          # Install exact locked dependencies
+npm run build   # Compile TypeScript → dist/
+npm start       # Run compiled output</code></pre>
+
+          <h3>Build for production</h3>
+          <pre><code>npm run build
+NODE_ENV=production node dist/index.js</code></pre>
+
+          <h3>Development mode (with hot reload)</h3>
+          <pre><code>npm run dev    # Uses tsx watch — no build step needed</code></pre>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Configuration ─────────────────────────────────────────────── -->
+        <section id="configuration">
+          <h2>Configuration</h2>
+          <p>
+            All configuration is driven by environment variables, validated at startup
+            with Zod. Copy <code>.env.example</code> to <code>.env</code> and fill in
+            your values.
+          </p>
+
+          <h3>Core variables</h3>
+          <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+            <table style="width:100%;border-collapse:collapse;font-size:.875rem;">
+              <thead>
+                <tr style="background:var(--color-surface);">
+                  <th style="padding:.625rem .875rem;text-align:left;border-bottom:1px solid var(--color-border);white-space:nowrap;">Variable</th>
+                  <th style="padding:.625rem .875rem;text-align:left;border-bottom:1px solid var(--color-border);">Default</th>
+                  <th style="padding:.625rem .875rem;text-align:left;border-bottom:1px solid var(--color-border);">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);"><code>PORT</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);white-space:nowrap;"><code>3000</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);">HTTP server port</td>
+                </tr>
+                <tr>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);"><code>NODE_ENV</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);white-space:nowrap;"><code>development</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);">Runtime environment</td>
+                </tr>
+                <tr>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);"><code>MCP_TRANSPORT</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);white-space:nowrap;"><code>http</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);">Transport mode: http | stdio | sse</td>
+                </tr>
+                <tr>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);"><code>JWT_SECRET</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);white-space:nowrap;"><em>required</em></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);">JWT signing secret (≥ 32 chars)</td>
+                </tr>
+                <tr>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);"><code>ENCRYPTION_KEY</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);white-space:nowrap;"><em>required</em></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);">64-char hex key for AES-256-GCM</td>
+                </tr>
+                <tr>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);"><code>LOG_LEVEL</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);white-space:nowrap;"><code>info</code></td>
+                  <td style="padding:.625rem .875rem;border-bottom:1px solid var(--color-border);">Logging verbosity</td>
+                </tr>
+                <tr>
+                  <td style="padding:.625rem .875rem;"><code>CORS_ORIGIN</code></td>
+                  <td style="padding:.625rem .875rem;white-space:nowrap;"><code>*</code></td>
+                  <td style="padding:.625rem .875rem;">Allowed CORS origins (comma-separated)</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <p>
+            See <a href="#env-vars">Environment Variables Reference</a> for the full list
+            including rate limiting, webhooks, cost monitoring, and Redis configuration.
+          </p>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Discovery ──────────────────────────────────────────────────── -->
+        <section id="discovery">
+          <h2>Discovery</h2>
+          <p>
+            The discovery engine connects to multiple registries simultaneously and merges
+            the results into a unified capability graph.
+          </p>
+          <h3>Supported registry sources</h3>
+          <ul>
+            <li><strong>GitHub Registry</strong> — scans GitHub repositories tagged with MCP topics</li>
+            <li><strong>Official MCP Registry</strong> — the canonical modelcontextprotocol.io registry</li>
+            <li><strong>Enterprise Catalog</strong> — internal catalog via HTTP or local file</li>
+            <li><strong>Local Workspace</strong> — scans your local filesystem for MCP server configs</li>
+          </ul>
+
+          <h3>Enable enterprise catalog</h3>
+          <pre><code>ENABLE_ENTERPRISE_CATALOG=true
+ENTERPRISE_CATALOG_URL=https://catalog.internal.example.com/tools
+# or file-based:
+ENTERPRISE_CATALOG_PATH=/etc/mcp-hub/catalog.json</code></pre>
+
+          <div class="docs-callout">
+            <p>
+              Discovery results are cached with a configurable TTL (default 5 minutes).
+              A single failing registry will not block results from other sources.
+            </p>
+          </div>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Provisioning ───────────────────────────────────────────────── -->
+        <section id="provisioning">
+          <h2>Provisioning</h2>
+          <p>
+            When a required capability is not installed, the provisioner automatically installs it.
+            The process is: resolve → verify checksum → install → register → activate.
+          </p>
+          <pre><code># Provisioning is automatic. To manually trigger:
+POST /admin/tools/install
+Authorization: Bearer &lt;token&gt;
+Content-Type: application/json
+
+{
+  "name": "mcp-filesystem",
+  "version": "1.2.0",
+  "source": "npm"
+}</code></pre>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Routing ────────────────────────────────────────────────────── -->
+        <section id="routing">
+          <h2>Routing</h2>
+          <p>
+            The provider router selects the best AI provider for each request based on
+            capability, cost, latency, and policy constraints.
+          </p>
+          <h3>Fallback chain</h3>
+          <p>
+            Routes follow: <strong>PRIMARY → FALLBACK → LOCAL</strong>.
+            A circuit breaker opens after N consecutive failures and routes around
+            the failing provider for a cooldown period.
+          </p>
+          <h3>Configure providers</h3>
+          <pre><code>OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_AI_API_KEY=AIza...</code></pre>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Policy ──────────────────────────────────────────────────────── -->
+        <section id="policy">
+          <h2>Policy &amp; Trust</h2>
+          <p>
+            Every tool activation passes through a 10-stage trust pipeline before execution:
+          </p>
+          <ol style="padding-left:1.5rem;display:flex;flex-direction:column;gap:.5rem;">
+            <li>Discovery metadata inspection</li>
+            <li>Source repository validation</li>
+            <li>Package signature verification</li>
+            <li>Provenance chain check</li>
+            <li>Allowlist / denylist evaluation</li>
+            <li>Risk scoring</li>
+            <li>Environment policy matching</li>
+            <li>Approval gate (synchronous or async)</li>
+            <li>Provisioning admission</li>
+            <li>Runtime monitoring</li>
+          </ol>
+          <h3>Policy packs</h3>
+          <p>
+            Drop JSON policy files into the <code>policies/</code> directory. The engine
+            hot-reloads changes without a restart.
+          </p>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Adapters ───────────────────────────────────────────────────── -->
+        <section id="adapters">
+          <h2>Adapters</h2>
+          <p>Adapters expose external services and tools as MCP capabilities.</p>
+        </section>
+
+        <section id="adapter-mcp">
+          <h3>MCP Adapter</h3>
+          <p>
+            Connects to the hub via stdio (for Claude Desktop / local CLIs) or SSE
+            (for web-based clients).
+          </p>
+          <pre><code># stdio mode (Claude Desktop)
+MCP_TRANSPORT=stdio node dist/index.js
+
+# SSE mode
+MCP_TRANSPORT=sse node dist/index.js
+# Connect client to: GET http://localhost:3000/mcp/sse</code></pre>
+        </section>
+
+        <section id="adapter-rest">
+          <h3>REST Adapter</h3>
+          <p>
+            Wraps any REST API as an MCP tool. Configure via the admin API or a
+            JSON descriptor file.
+          </p>
+        </section>
+
+        <section id="adapter-graphql">
+          <h3>GraphQL Adapter</h3>
+          <p>
+            Performs schema introspection and maps each query/mutation to an MCP tool.
+            Supports custom auth headers via the credential broker.
+          </p>
+        </section>
+
+        <section id="adapter-cli">
+          <h3>CLI Adapter</h3>
+          <p>
+            Executes local CLI tools in a sandboxed subprocess. Shell metacharacters
+            are rejected. Configurable timeout (default 30 s, max 300 s).
+          </p>
+        </section>
+
+        <section id="adapter-events">
+          <h3>Events Adapter</h3>
+          <p>
+            Receives webhook events (<code>POST /adapters/events/webhook</code>) and
+            SSE streams (<code>GET /adapters/events/stream</code>), mapping them to
+            workflow triggers. Events are deduplicated within a configurable window.
+          </p>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── API Reference ──────────────────────────────────────────────── -->
+        <section id="api">
+          <h2>API Reference</h2>
+          <p>The hub exposes a REST Admin API on the same port as the MCP server.</p>
+
+          <h3>Health endpoints</h3>
+          <pre><code>GET /health        # Combined liveness + readiness
+GET /health/live   # Always 200 (liveness probe)
+GET /health/ready  # 200 when initialized, 503 otherwise</code></pre>
+
+          <h3>Admin endpoints (require JWT)</h3>
+          <pre><code>GET    /admin/capabilities        # List registered capabilities
+DELETE /admin/capabilities/:id    # Deregister a capability
+GET    /admin/policies             # List active policy rules
+GET    /admin/costs                # Cost summary
+GET    /admin/audit                # Recent audit log entries</code></pre>
+
+          <p>
+            See <a href="/docs/api.md">docs/api.md</a> for the full API reference with
+            request/response schemas, error codes, and example curl commands.
+          </p>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Environment Variables ──────────────────────────────────────── -->
+        <section id="env-vars">
+          <h2>Environment Variables Reference</h2>
+          <p>
+            Full variable reference is in <a href="/docs/deployment.md">docs/deployment.md</a>.
+            The most commonly configured variables:
+          </p>
+
+          <h3>Transport &amp; Server</h3>
+          <pre><code>PORT=3000
+NODE_ENV=production
+MCP_TRANSPORT=http   # http | stdio | sse
+LOG_LEVEL=info
+CORS_ORIGIN=https://your-domain.com</code></pre>
+
+          <h3>Security (required in production)</h3>
+          <pre><code>JWT_SECRET=your-32-char-min-secret
+ENCRYPTION_KEY=your-64-char-hex-key</code></pre>
+
+          <h3>Rate limiting</h3>
+          <pre><code>RATE_LIMIT_WINDOW_MS=60000
+RATE_LIMIT_MAX_REQUESTS=300</code></pre>
+
+          <h3>Cost monitoring</h3>
+          <pre><code>COST_TRACKING_ENABLED=true
+COST_BUDGET_DAILY_USD=50   # 0 = no limit</code></pre>
+        </section>
+
+        <hr class="divider" />
+
+        <!-- ── Deployment ─────────────────────────────────────────────────── -->
+        <section id="deployment">
+          <h2>Deployment</h2>
+
+          <h3>Docker (recommended for production)</h3>
+          <pre><code>docker build -t mcp-hub .
+docker run -p 3000:3000 \
+  --env-file .env \
+  mcp-hub</code></pre>
+
+          <h3>Docker Compose (with Redis)</h3>
+          <pre><code>docker compose up -d</code></pre>
+
+          <h3>Health check endpoints for orchestrators</h3>
+          <pre><code># Kubernetes readiness probe
+GET /health/ready
+
+# Kubernetes liveness probe
+GET /health/live</code></pre>
+
+          <div class="docs-callout">
+            <p>
+              For Kubernetes manifests, nginx configuration, and air-gapped deployment
+              instructions, see <a href="/docs/deployment.md">docs/deployment.md</a>.
+            </p>
+          </div>
+        </section>
+
+        <!-- Bottom padding -->
+        <div style="height:3rem;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/nav.js"></script>
+</body>
+</html>
