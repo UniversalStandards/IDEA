@@ -44,7 +44,8 @@ const redactFormat = format((info) => {
 
 // ─────────────────────────────────────────────────────────────────
 const nodeEnv = process.env['NODE_ENV'] ?? 'development';
-const logLevel = process.env['LOG_LEVEL'] ?? (nodeEnv === 'production' ? 'info' : 'debug');
+const rawLogLevel = process.env['LOG_LEVEL'] ?? (nodeEnv === 'production' ? 'info' : 'debug');
+const logLevel = nodeEnv === 'production' && rawLogLevel === 'silly' ? 'debug' : rawLogLevel;
 const logsDir = path.join(process.cwd(), 'logs');
 
 if (nodeEnv !== 'test') {
