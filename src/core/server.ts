@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import * as http from 'http';
+import * as path from 'path';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLogger } from '../observability/logger';
 import { type Config } from '../config';
@@ -34,6 +35,11 @@ export class Server {
 
   async start(): Promise<void> {
     logger.info('Starting server...');
+
+    // ── Static files (public/) ─────────────────────────────────────────────
+    // Served before rate-limiting so assets load freely from the browser.
+    const publicDir = path.join(process.cwd(), 'public');
+    this.app.use(express.static(publicDir));
 
     // ── Security middleware ────────────────────────────────────────────────
     this.app.use(helmet());

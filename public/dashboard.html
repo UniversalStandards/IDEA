@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Universal MCP Orchestration Hub — Admin Dashboard" />
+  <title>Dashboard — Universal MCP Orchestration Hub</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+
+  <!-- ── Mobile sidebar overlay ──────────────────────────────────────────── -->
+  <div id="dash-overlay" class="dash-sidebar-overlay" aria-hidden="true"></div>
+
+  <!-- ── Dashboard sidebar ───────────────────────────────────────────────── -->
+  <aside id="dash-sidebar" class="dash-sidebar" aria-label="Dashboard navigation">
+    <a class="dash-sidebar__brand" href="/" aria-label="Universal MCP Orchestration Hub home">
+      <span class="dash-sidebar__brand-icon" aria-hidden="true">⚡</span>
+      MCP Hub
+    </a>
+
+    <nav class="dash-sidebar__nav" aria-label="Main navigation">
+      <p class="dash-sidebar__section-title">Overview</p>
+      <ul class="dash-sidebar__links" role="list">
+        <li>
+          <a href="#overview" class="active">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">🏠</span>
+            Dashboard
+          </a>
+        </li>
+        <li>
+          <a href="#capabilities">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">🧩</span>
+            Capabilities
+            <span class="dash-sidebar__badge">24</span>
+          </a>
+        </li>
+        <li>
+          <a href="#providers">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">🔀</span>
+            Providers
+          </a>
+        </li>
+        <li>
+          <a href="#workflows">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">⚙️</span>
+            Workflows
+          </a>
+        </li>
+      </ul>
+
+      <p class="dash-sidebar__section-title">Observability</p>
+      <ul class="dash-sidebar__links" role="list">
+        <li>
+          <a href="#metrics">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">📊</span>
+            Metrics
+          </a>
+        </li>
+        <li>
+          <a href="#audit">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">📋</span>
+            Audit Log
+          </a>
+        </li>
+        <li>
+          <a href="#costs">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">💰</span>
+            Cost Monitor
+          </a>
+        </li>
+      </ul>
+
+      <p class="dash-sidebar__section-title">Management</p>
+      <ul class="dash-sidebar__links" role="list">
+        <li>
+          <a href="#policies">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">🛡️</span>
+            Policies
+          </a>
+        </li>
+        <li>
+          <a href="#settings">
+            <span class="dash-sidebar__link-icon" aria-hidden="true">⚙️</span>
+            Settings
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- User footer -->
+    <div class="dash-sidebar__footer">
+      <div class="dash-sidebar__user" role="button" tabindex="0" aria-label="User menu">
+        <div class="dash-sidebar__avatar" aria-hidden="true">A</div>
+        <div>
+          <div class="dash-sidebar__username">Admin User</div>
+          <div class="dash-sidebar__role">Administrator</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ── Dashboard main ─────────────────────────────────────────────────── -->
+  <div class="dash-main" id="main-content">
+
+    <!-- Top bar -->
+    <div class="dash-topbar" role="banner">
+      <div class="dash-topbar__left">
+        <button
+          id="dash-menu-btn"
+          class="dash-topbar__menu-btn"
+          aria-controls="dash-sidebar"
+          aria-expanded="false"
+          aria-label="Open navigation"
+        >☰</button>
+        <h1 class="dash-topbar__title">Dashboard</h1>
+      </div>
+
+      <div class="dash-topbar__right">
+        <!-- Search (hidden on very small screens) -->
+        <div class="dash-topbar__search">
+          <span class="dash-topbar__search-icon" aria-hidden="true">🔍</span>
+          <input
+            type="search"
+            placeholder="Search capabilities..."
+            aria-label="Search capabilities"
+          />
+        </div>
+
+        <!-- Notification bell -->
+        <button class="dash-topbar__icon-btn" aria-label="Notifications (3 unread)">
+          <span aria-hidden="true">🔔</span>
+          <span class="dash-topbar__notif-dot" aria-hidden="true"></span>
+        </button>
+
+        <!-- Refresh -->
+        <button class="dash-topbar__icon-btn" aria-label="Refresh data">
+          <span aria-hidden="true">🔄</span>
+        </button>
+
+        <!-- Avatar (desktop) -->
+        <button
+          class="dash-topbar__icon-btn"
+          aria-label="User menu"
+          style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;width:44px;height:44px;border-radius:9999px;font-weight:700;font-size:.875rem;"
+        >A</button>
+      </div>
+    </div>
+
+    <!-- ── Dash content ───────────────────────────────────────────────────── -->
+    <div class="dash-content">
+
+      <!-- ── Stats cards ────────────────────────────────────────────────── -->
+      <div class="dash-section">
+        <div class="stats-grid" role="list">
+          <div class="stat-card" role="listitem">
+            <p class="stat-card__label">Capabilities</p>
+            <p class="stat-card__value">24</p>
+            <p class="stat-card__change stat-card__change--up">↑ 3 this week</p>
+          </div>
+          <div class="stat-card" role="listitem">
+            <p class="stat-card__label">Requests / hr</p>
+            <p class="stat-card__value">1,847</p>
+            <p class="stat-card__change stat-card__change--up">↑ 12% vs yesterday</p>
+          </div>
+          <div class="stat-card" role="listitem">
+            <p class="stat-card__label">Avg Latency</p>
+            <p class="stat-card__value">128ms</p>
+            <p class="stat-card__change stat-card__change--down">↓ 8ms improved</p>
+          </div>
+          <div class="stat-card" role="listitem">
+            <p class="stat-card__label">Daily Cost</p>
+            <p class="stat-card__value">$4.32</p>
+            <p class="stat-card__change stat-card__change--neutral">— within budget</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Status bar ─────────────────────────────────────────────────── -->
+      <div class="dash-section">
+        <div class="card" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;padding:1rem 1.25rem;">
+          <div style="display:flex;align-items:center;gap:.5rem;font-size:.875rem;font-weight:600;color:var(--color-success);">
+            <span class="status-pulse" aria-hidden="true"></span>
+            All systems operational
+          </div>
+          <div style="display:flex;align-items:center;gap:.375rem;font-size:.8125rem;color:var(--color-text-muted);">
+            Uptime: <strong id="dash-uptime" data-seconds="86400" style="color:var(--color-text);">24h 0m 0s</strong>
+          </div>
+          <div style="margin-left:auto;display:flex;gap:.5rem;flex-wrap:wrap;">
+            <span class="badge badge-success">Runtime OK</span>
+            <span class="badge badge-success">3 Providers Active</span>
+            <span class="badge badge-info">Policy: Enforcing</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Charts ────────────────────────────────────────────────────── -->
+      <div class="dash-section">
+        <p class="dash-section-title">Activity</p>
+        <div class="charts-grid">
+          <div class="chart-card">
+            <div class="chart-header">
+              <p class="chart-title">Request Volume</p>
+              <select class="form-select" style="width:auto;height:36px;font-size:.8125rem;" aria-label="Time range">
+                <option>Last 24h</option>
+                <option>Last 7d</option>
+                <option>Last 30d</option>
+              </select>
+            </div>
+            <div class="chart-area" role="img" aria-label="Request volume chart">
+              <svg id="chart-requests" viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <div class="chart-legend">
+              <div class="chart-legend-item">
+                <div class="chart-legend-dot" style="background:#4f46e5;"></div>
+                Requests
+              </div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-header">
+              <p class="chart-title">Response Latency (ms)</p>
+              <select class="form-select" style="width:auto;height:36px;font-size:.8125rem;" aria-label="Time range">
+                <option>Last 24h</option>
+                <option>Last 7d</option>
+                <option>Last 30d</option>
+              </select>
+            </div>
+            <div class="chart-area" role="img" aria-label="Response latency chart">
+              <svg id="chart-latency" viewBox="0 0 600 120" preserveAspectRatio="none" aria-hidden="true"></svg>
+            </div>
+            <div class="chart-legend">
+              <div class="chart-legend-item">
+                <div class="chart-legend-dot" style="background:#10b981;"></div>
+                p50 latency
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Provider status ────────────────────────────────────────────── -->
+      <div class="dash-section" id="providers">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem;">
+          <p class="dash-section-title" style="margin-bottom:0;">AI Providers</p>
+          <a href="#" class="btn btn-sm btn-outline">Configure</a>
+        </div>
+        <div class="providers-grid">
+          <div class="provider-card">
+            <div class="provider-header">
+              <p class="provider-name">OpenAI</p>
+              <p class="provider-status provider-status--ok">
+                <span class="status-pulse" aria-hidden="true"></span> Active
+              </p>
+            </div>
+            <div class="provider-meta">
+              <div class="provider-meta-item">
+                <span class="provider-meta-label">Model</span>
+                <span class="provider-meta-value">gpt-4o</span>
+              </div>
+              <div class="provider-meta-item">
+                <span class="provider-meta-label">Latency</span>
+                <span class="provider-meta-value">142ms</span>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--color-text-muted);margin-bottom:.25rem;">
+                <span>Utilization</span><span>68%</span>
+              </div>
+              <div class="progress-bar"><div class="progress-bar__fill" style="width:68%"></div></div>
+            </div>
+          </div>
+
+          <div class="provider-card">
+            <div class="provider-header">
+              <p class="provider-name">Anthropic</p>
+              <p class="provider-status provider-status--ok">
+                <span class="status-pulse" aria-hidden="true"></span> Active
+              </p>
+            </div>
+            <div class="provider-meta">
+              <div class="provider-meta-item">
+                <span class="provider-meta-label">Model</span>
+                <span class="provider-meta-value">claude-3-5</span>
+              </div>
+              <div class="provider-meta-item">
+                <span class="provider-meta-label">Latency</span>
+                <span class="provider-meta-value">118ms</span>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--color-text-muted);margin-bottom:.25rem;">
+                <span>Utilization</span><span>45%</span>
+              </div>
+              <div class="progress-bar"><div class="progress-bar__fill" style="width:45%"></div></div>
+            </div>
+          </div>
+
+          <div class="provider-card">
+            <div class="provider-header">
+              <p class="provider-name">Google Gemini</p>
+              <p class="provider-status provider-status--warning">
+                <span class="status-pulse status-pulse--warning" aria-hidden="true"></span> Degraded
+              </p>
+            </div>
+            <div class="provider-meta">
+              <div class="provider-meta-item">
+                <span class="provider-meta-label">Model</span>
+                <span class="provider-meta-value">gemini-2.5</span>
+              </div>
+              <div class="provider-meta-item">
+                <span class="provider-meta-label">Latency</span>
+                <span class="provider-meta-value">340ms</span>
+              </div>
+            </div>
+            <div>
+              <div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--color-text-muted);margin-bottom:.25rem;">
+                <span>Utilization</span><span>22%</span>
+              </div>
+              <div class="progress-bar"><div class="progress-bar__fill" style="width:22%;background:linear-gradient(90deg,#f59e0b,#ef4444)"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Capabilities table (→ cards on mobile) ────────────────────── -->
+      <div class="dash-section" id="capabilities">
+        <div class="data-table-wrapper">
+          <div class="data-table-header">
+            <p class="data-table-title">Registered Capabilities</p>
+            <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+              <input type="search" placeholder="Filter…" aria-label="Filter capabilities" class="form-input" style="width:160px;height:38px;" />
+              <a href="#" class="btn btn-sm btn-primary">+ Install</a>
+            </div>
+          </div>
+
+          <!-- Horizontal-scroll table (sm+) with frozen first column -->
+          <div class="data-table-scroll" role="region" aria-label="Capabilities table" tabindex="0">
+            <table class="data-table" aria-label="Registered capabilities">
+              <thead>
+                <tr>
+                  <th class="col-sticky" scope="col">Tool</th>
+                  <th scope="col">Version</th>
+                  <th scope="col">Source</th>
+                  <th scope="col">Status</th>
+                  <th scope="col">Requests</th>
+                  <th scope="col">Latency</th>
+                  <th scope="col">Trust</th>
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="col-sticky" style="font-weight:600;">mcp-filesystem</td>
+                  <td>2.1.0</td>
+                  <td>npm</td>
+                  <td><span class="badge badge-success">running</span></td>
+                  <td>4,821</td>
+                  <td>22ms</td>
+                  <td><span class="badge badge-success">verified</span></td>
+                  <td>
+                    <div style="display:flex;gap:.375rem;">
+                      <button class="btn btn-sm btn-ghost" aria-label="View details for mcp-filesystem">View</button>
+                      <button class="btn btn-sm btn-ghost" aria-label="Stop mcp-filesystem">Stop</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="col-sticky" style="font-weight:600;">mcp-github</td>
+                  <td>1.8.2</td>
+                  <td>npm</td>
+                  <td><span class="badge badge-success">running</span></td>
+                  <td>2,103</td>
+                  <td>145ms</td>
+                  <td><span class="badge badge-success">verified</span></td>
+                  <td>
+                    <div style="display:flex;gap:.375rem;">
+                      <button class="btn btn-sm btn-ghost" aria-label="View details for mcp-github">View</button>
+                      <button class="btn btn-sm btn-ghost" aria-label="Stop mcp-github">Stop</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="col-sticky" style="font-weight:600;">mcp-browser</td>
+                  <td>3.0.1</td>
+                  <td>npm</td>
+                  <td><span class="badge badge-warning">degraded</span></td>
+                  <td>892</td>
+                  <td>620ms</td>
+                  <td><span class="badge badge-success">verified</span></td>
+                  <td>
+                    <div style="display:flex;gap:.375rem;">
+                      <button class="btn btn-sm btn-ghost" aria-label="View details for mcp-browser">View</button>
+                      <button class="btn btn-sm btn-ghost" aria-label="Restart mcp-browser">Restart</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="col-sticky" style="font-weight:600;">mcp-postgres</td>
+                  <td>1.2.0</td>
+                  <td>npm</td>
+                  <td><span class="badge badge-success">running</span></td>
+                  <td>3,445</td>
+                  <td>38ms</td>
+                  <td><span class="badge badge-success">verified</span></td>
+                  <td>
+                    <div style="display:flex;gap:.375rem;">
+                      <button class="btn btn-sm btn-ghost" aria-label="View details for mcp-postgres">View</button>
+                      <button class="btn btn-sm btn-ghost" aria-label="Stop mcp-postgres">Stop</button>
+                    </div>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="col-sticky" style="font-weight:600;">mcp-slack</td>
+                  <td>2.0.0</td>
+                  <td>enterprise</td>
+                  <td><span class="badge badge-neutral">stopped</span></td>
+                  <td>0</td>
+                  <td>—</td>
+                  <td><span class="badge badge-info">pending</span></td>
+                  <td>
+                    <div style="display:flex;gap:.375rem;">
+                      <button class="btn btn-sm btn-ghost" aria-label="View details for mcp-slack">View</button>
+                      <button class="btn btn-sm btn-primary" aria-label="Start mcp-slack">Start</button>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Card view (mobile < 640px) -->
+          <div class="data-table-cards" role="list" aria-label="Capabilities (card view)">
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">mcp-filesystem</span>
+                <span class="badge badge-success">running</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Version</span>
+                <span class="data-card__value">2.1.0 · npm</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Requests</span>
+                <span class="data-card__value">4,821</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Latency</span>
+                <span class="data-card__value">22ms</span>
+              </div>
+              <div style="display:flex;gap:.5rem;margin-top:.375rem;">
+                <button class="btn btn-sm btn-ghost" style="flex:1;">View</button>
+                <button class="btn btn-sm btn-ghost" style="flex:1;">Stop</button>
+              </div>
+            </div>
+
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">mcp-github</span>
+                <span class="badge badge-success">running</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Version</span>
+                <span class="data-card__value">1.8.2 · npm</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Requests</span>
+                <span class="data-card__value">2,103</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Latency</span>
+                <span class="data-card__value">145ms</span>
+              </div>
+              <div style="display:flex;gap:.5rem;margin-top:.375rem;">
+                <button class="btn btn-sm btn-ghost" style="flex:1;">View</button>
+                <button class="btn btn-sm btn-ghost" style="flex:1;">Stop</button>
+              </div>
+            </div>
+
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">mcp-browser</span>
+                <span class="badge badge-warning">degraded</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Version</span>
+                <span class="data-card__value">3.0.1 · npm</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Requests</span>
+                <span class="data-card__value">892</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Latency</span>
+                <span class="data-card__value">620ms</span>
+              </div>
+              <div style="display:flex;gap:.5rem;margin-top:.375rem;">
+                <button class="btn btn-sm btn-ghost" style="flex:1;">View</button>
+                <button class="btn btn-sm btn-ghost" style="flex:1;">Restart</button>
+              </div>
+            </div>
+
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">mcp-postgres</span>
+                <span class="badge badge-success">running</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Version</span>
+                <span class="data-card__value">1.2.0 · npm</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Requests</span>
+                <span class="data-card__value">3,445</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Latency</span>
+                <span class="data-card__value">38ms</span>
+              </div>
+              <div style="display:flex;gap:.5rem;margin-top:.375rem;">
+                <button class="btn btn-sm btn-ghost" style="flex:1;">View</button>
+                <button class="btn btn-sm btn-ghost" style="flex:1;">Stop</button>
+              </div>
+            </div>
+
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">mcp-slack</span>
+                <span class="badge badge-neutral">stopped</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Version</span>
+                <span class="data-card__value">2.0.0 · enterprise</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Requests</span>
+                <span class="data-card__value">—</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Trust</span>
+                <span class="data-card__value">pending</span>
+              </div>
+              <div style="display:flex;gap:.5rem;margin-top:.375rem;">
+                <button class="btn btn-sm btn-ghost" style="flex:1;">View</button>
+                <button class="btn btn-sm btn-primary" style="flex:1;">Start</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Settings / form section ────────────────────────────────────── -->
+      <div class="dash-section" id="settings">
+        <p class="dash-section-title">Install New Capability</p>
+        <div class="card">
+          <form onsubmit="return false;" aria-label="Install capability form">
+            <div class="form-grid">
+              <div class="form-group">
+                <label class="form-label" for="field-name">Package name</label>
+                <input id="field-name" type="text" class="form-input" placeholder="e.g. mcp-filesystem" autocomplete="off" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="field-version">Version</label>
+                <input id="field-version" type="text" class="form-input" placeholder="e.g. 2.1.0 or latest" autocomplete="off" />
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="field-source">Source</label>
+                <select id="field-source" class="form-select">
+                  <option>npm</option>
+                  <option>github</option>
+                  <option>enterprise</option>
+                  <option>local</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" for="field-registry">Registry URL</label>
+                <input id="field-registry" type="url" class="form-input" placeholder="https://registry.example.com" />
+                <p class="form-hint">Optional — leave blank for the default registry</p>
+              </div>
+              <div class="form-group form-group--full">
+                <label class="form-label" for="field-config">Configuration JSON</label>
+                <textarea id="field-config" class="form-textarea" placeholder='{ "env": { "MY_VAR": "value" } }' rows="4"></textarea>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Install capability</button>
+                <button type="reset" class="btn btn-ghost">Reset</button>
+                <span style="font-size:.8125rem;color:var(--color-text-muted);">Dry-run mode available via API</span>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- ── Audit log table ─────────────────────────────────────────────── -->
+      <div class="dash-section" id="audit">
+        <div class="data-table-wrapper">
+          <div class="data-table-header">
+            <p class="data-table-title">Recent Audit Events</p>
+            <a href="/admin/audit" class="btn btn-sm btn-ghost">View all →</a>
+          </div>
+
+          <div class="data-table-scroll" role="region" aria-label="Audit log table" tabindex="0">
+            <table class="data-table" aria-label="Recent audit events">
+              <thead>
+                <tr>
+                  <th scope="col" class="col-sticky">Timestamp</th>
+                  <th scope="col">Action</th>
+                  <th scope="col">Actor</th>
+                  <th scope="col">Resource</th>
+                  <th scope="col">Result</th>
+                  <th scope="col">Correlation ID</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="col-sticky" style="font-variant-numeric:tabular-nums;color:var(--color-text-muted);font-size:.8125rem;">2026-04-23 20:55:01</td>
+                  <td>capability.install</td>
+                  <td>admin</td>
+                  <td>mcp-filesystem@2.1.0</td>
+                  <td><span class="badge badge-success">success</span></td>
+                  <td style="font-size:.8125rem;color:var(--color-text-muted);font-family:monospace;">a1b2c3d4</td>
+                </tr>
+                <tr>
+                  <td class="col-sticky" style="font-variant-numeric:tabular-nums;color:var(--color-text-muted);font-size:.8125rem;">2026-04-23 20:52:14</td>
+                  <td>policy.evaluate</td>
+                  <td>system</td>
+                  <td>mcp-slack@2.0.0</td>
+                  <td><span class="badge badge-warning">pending</span></td>
+                  <td style="font-size:.8125rem;color:var(--color-text-muted);font-family:monospace;">e5f6g7h8</td>
+                </tr>
+                <tr>
+                  <td class="col-sticky" style="font-variant-numeric:tabular-nums;color:var(--color-text-muted);font-size:.8125rem;">2026-04-23 20:48:33</td>
+                  <td>provider.route</td>
+                  <td>system</td>
+                  <td>gpt-4o → claude-3-5</td>
+                  <td><span class="badge badge-info">fallback</span></td>
+                  <td style="font-size:.8125rem;color:var(--color-text-muted);font-family:monospace;">i9j0k1l2</td>
+                </tr>
+                <tr>
+                  <td class="col-sticky" style="font-variant-numeric:tabular-nums;color:var(--color-text-muted);font-size:.8125rem;">2026-04-23 20:44:07</td>
+                  <td>admin.login</td>
+                  <td>admin</td>
+                  <td>dashboard</td>
+                  <td><span class="badge badge-success">success</span></td>
+                  <td style="font-size:.8125rem;color:var(--color-text-muted);font-family:monospace;">m3n4o5p6</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Card view (mobile) -->
+          <div class="data-table-cards" role="list" aria-label="Audit events (card view)">
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">capability.install</span>
+                <span class="badge badge-success">success</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Resource</span>
+                <span class="data-card__value">mcp-filesystem@2.1.0</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Actor</span>
+                <span class="data-card__value">admin</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Time</span>
+                <span class="data-card__value">20:55:01</span>
+              </div>
+            </div>
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">policy.evaluate</span>
+                <span class="badge badge-warning">pending</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Resource</span>
+                <span class="data-card__value">mcp-slack@2.0.0</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Actor</span>
+                <span class="data-card__value">system</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Time</span>
+                <span class="data-card__value">20:52:14</span>
+              </div>
+            </div>
+            <div class="data-card" role="listitem">
+              <div class="data-card__header">
+                <span class="data-card__name">provider.route</span>
+                <span class="badge badge-info">fallback</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Resource</span>
+                <span class="data-card__value">gpt-4o → claude-3-5</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Actor</span>
+                <span class="data-card__value">system</span>
+              </div>
+              <div class="data-card__row">
+                <span class="data-card__label">Time</span>
+                <span class="data-card__value">20:48:33</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /.dash-content -->
+  </div><!-- /.dash-main -->
+
+  <!-- ── Bottom navigation (mobile only) ─────────────────────────────────── -->
+  <nav class="bottom-nav" aria-label="Mobile navigation">
+    <a class="bottom-nav__item active" href="#overview" aria-label="Dashboard overview">
+      <span class="bottom-nav__icon" aria-hidden="true">🏠</span>
+      <span>Home</span>
+    </a>
+    <a class="bottom-nav__item" href="#capabilities" aria-label="Capabilities">
+      <span class="bottom-nav__icon" aria-hidden="true">🧩</span>
+      <span>Tools</span>
+    </a>
+    <a class="bottom-nav__item" href="#metrics" aria-label="Metrics">
+      <span class="bottom-nav__icon" aria-hidden="true">📊</span>
+      <span>Metrics</span>
+    </a>
+    <a class="bottom-nav__item" href="#audit" aria-label="Audit log">
+      <span class="bottom-nav__icon" aria-hidden="true">📋</span>
+      <span>Audit</span>
+    </a>
+    <a class="bottom-nav__item" href="#settings" aria-label="Settings">
+      <span class="bottom-nav__icon" aria-hidden="true">⚙️</span>
+      <span>Settings</span>
+    </a>
+  </nav>
+
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>

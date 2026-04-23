@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Universal MCP Orchestration Hub — Self-expanding, multi-provider, enterprise-ready AI orchestration platform." />
+  <title>Universal MCP Orchestration Hub</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body>
+  <!-- Skip link for keyboard users -->
+  <a class="skip-link" href="#main-content">Skip to main content</a>
+
+  <!-- ── Top navigation ──────────────────────────────────────────────────── -->
+  <header>
+    <nav class="topnav" role="navigation" aria-label="Main navigation">
+      <div class="container">
+        <div class="topnav__inner">
+          <!-- Brand -->
+          <a class="topnav__brand" href="/" aria-label="Universal MCP Orchestration Hub home">
+            <span class="topnav__brand-icon" aria-hidden="true">⚡</span>
+            <span>MCP Hub</span>
+          </a>
+
+          <!-- Desktop links -->
+          <ul class="topnav__links" role="list">
+            <li><a href="/#features">Features</a></li>
+            <li><a href="/#pricing">Pricing</a></li>
+            <li><a href="/docs.html">Docs</a></li>
+            <li><a href="/dashboard.html">Dashboard</a></li>
+          </ul>
+
+          <!-- CTA + hamburger -->
+          <div class="topnav__actions">
+            <a href="/dashboard.html" class="btn btn-primary btn-sm topnav__cta">
+              <span class="topnav__cta-label">Get Started</span>
+              <span aria-hidden="true">→</span>
+            </a>
+            <button
+              id="nav-burger"
+              class="topnav__burger"
+              aria-controls="nav-drawer"
+              aria-expanded="false"
+              aria-label="Open navigation menu"
+            >
+              <span></span>
+              <span></span>
+              <span></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Mobile drawer -->
+    <div id="nav-drawer" class="drawer" role="dialog" aria-modal="true" aria-label="Navigation menu">
+      <div id="nav-drawer-backdrop" class="drawer__backdrop" aria-hidden="true"></div>
+      <div class="drawer__panel">
+        <div class="drawer__header">
+          <a class="topnav__brand" href="/" style="text-decoration:none">
+            <span class="topnav__brand-icon" aria-hidden="true">⚡</span>
+            <span>MCP Hub</span>
+          </a>
+          <button id="nav-drawer-close" class="drawer__close" aria-label="Close menu">✕</button>
+        </div>
+        <ul class="drawer__nav" role="list">
+          <li><a href="/#features">🧩 Features</a></li>
+          <li><a href="/#pricing">💰 Pricing</a></li>
+          <li><a href="/docs.html">📚 Documentation</a></li>
+          <li><a href="/dashboard.html">🖥️ Dashboard</a></li>
+          <li><a href="https://github.com/UniversalStandards/IDEA">🐙 GitHub</a></li>
+        </ul>
+        <div class="drawer__footer">
+          <a href="/dashboard.html" class="btn btn-primary">Get Started →</a>
+          <a href="/docs.html" class="btn btn-outline">Read the Docs</a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main content ─────────────────────────────────────────────────────── -->
+  <main id="main-content">
+
+    <!-- ── HERO ──────────────────────────────────────────────────────────── -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="container">
+        <div class="hero__grid">
+          <!-- Left: copy -->
+          <div>
+            <p class="hero__kicker" aria-label="Tagline">
+              <span aria-hidden="true">🚀</span>
+              Enterprise-Ready AI Orchestration
+            </p>
+            <h1 class="hero__title" id="hero-title">
+              The Universal MCP Orchestration Hub
+            </h1>
+            <p class="hero__description">
+              Self-expanding. Multi-provider. Policy-aware. Discover, provision,
+              and orchestrate AI tools, agents, and services from any registry —
+              automatically, at runtime, with zero-touch setup.
+            </p>
+            <div class="hero__actions">
+              <a href="/dashboard.html" class="btn btn-primary btn-lg">
+                Open Dashboard →
+              </a>
+              <a href="/docs.html" class="btn btn-outline btn-lg">
+                Read the Docs
+              </a>
+            </div>
+          </div>
+
+          <!-- Right: visual -->
+          <div class="hero__visual" aria-hidden="true" role="presentation">
+            <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;">
+              <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;"></div>
+              <div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;"></div>
+              <div style="width:10px;height:10px;border-radius:50%;background:#10b981;"></div>
+              <span style="color:rgb(199 210 254/.5);font-size:.75rem;margin-left:.5rem;font-family:monospace;">mcp-hub — runtime</span>
+            </div>
+            <div class="hero__visual-bar"></div>
+            <div class="hero__visual-bar"></div>
+            <div class="hero__visual-bar"></div>
+            <div class="hero__visual-row">
+              <div class="hero__visual-block">
+                <div style="padding:.5rem .75rem;">
+                  <div style="font-family:monospace;font-size:.7rem;color:#818cf8;">✓ Discovered 24 tools</div>
+                  <div style="font-family:monospace;font-size:.7rem;color:#818cf8;opacity:.7;">✓ Policy: ALLOW</div>
+                </div>
+              </div>
+              <div class="hero__visual-block">
+                <div style="padding:.5rem .75rem;">
+                  <div style="font-family:monospace;font-size:.7rem;color:#a78bfa;">→ Routing to GPT-4o</div>
+                  <div style="font-family:monospace;font-size:.7rem;color:#a78bfa;opacity:.7;">⟳ Fallback ready</div>
+                </div>
+              </div>
+            </div>
+            <div style="margin-top:.5rem;font-family:monospace;font-size:.7rem;color:rgb(129 140 248/.6);">
+              [INFO] Runtime initialized in 142ms<br>
+              [INFO] 3 providers active • 24 tools loaded
+            </div>
+          </div>
+        </div>
+
+        <!-- Stats row -->
+        <div class="hero__stats">
+          <div>
+            <div class="hero__stat-value">24+</div>
+            <div class="hero__stat-label">Tool Integrations</div>
+          </div>
+          <div>
+            <div class="hero__stat-value">10x</div>
+            <div class="hero__stat-label">Faster Provisioning</div>
+          </div>
+          <div>
+            <div class="hero__stat-value">99.9%</div>
+            <div class="hero__stat-label">Uptime SLA</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── FEATURES ───────────────────────────────────────────────────────── -->
+    <section id="features" class="features" aria-labelledby="features-title">
+      <div class="container">
+        <div class="text-center">
+          <span class="section-label">Capabilities</span>
+          <h2 class="section-title" id="features-title">
+            Everything you need to orchestrate AI at scale
+          </h2>
+          <p class="section-lead" style="margin-inline:auto;">
+            A complete platform that discovers, validates, provisions, and
+            operates AI tools — with enterprise-grade security and governance
+            built in from day one.
+          </p>
+        </div>
+
+        <div class="features-grid">
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">🔍</div>
+            <h3 class="feature-title">Intelligent Discovery</h3>
+            <p class="feature-desc">
+              Automatically searches GitHub, official MCP registries, private
+              catalogs, and local workspaces. Correlates metadata to surface
+              the right tool for every task.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">⚡</div>
+            <h3 class="feature-title">Zero-Touch Provisioning</h3>
+            <p class="feature-desc">
+              Missing capability? The hub finds, validates, installs, configures,
+              and registers it — in milliseconds — without human intervention.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">🔀</div>
+            <h3 class="feature-title">Multi-Provider Routing</h3>
+            <p class="feature-desc">
+              Route intelligently across OpenAI, Anthropic, Gemini, Azure,
+              local models, and custom endpoints. Automatic fallback with
+              circuit-breaker protection.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">🛡️</div>
+            <h3 class="feature-title">Policy & Trust Engine</h3>
+            <p class="feature-desc">
+              10-stage trust pipeline: provenance checks, signature validation,
+              risk scoring, approval gates, and immutable audit trails for
+              every tool activation.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">🔗</div>
+            <h3 class="feature-title">Protocol Normalization</h3>
+            <p class="feature-desc">
+              Bridges MCP, JSON-RPC, REST, GraphQL, CLI, and WebSocket. Any
+              client speaks any protocol — the hub translates transparently.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">📊</div>
+            <h3 class="feature-title">Full Observability</h3>
+            <p class="feature-desc">
+              Structured logging, distributed tracing, cost monitoring, latency
+              metrics, and per-provider analytics — all surfaced in the admin
+              dashboard.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">🤖</div>
+            <h3 class="feature-title">Multi-Agent Workflows</h3>
+            <p class="feature-desc">
+              DAG-based workflow engine with retry, fan-out, agent delegation,
+              event triggers, and human-in-the-loop checkpoints for complex
+              agentic pipelines.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">🔐</div>
+            <h3 class="feature-title">Credential Broker</h3>
+            <p class="feature-desc">
+              Scoped, encrypted credential injection per tool. Token rotation,
+              vault integration paths, and zero-secret-in-source enforcement.
+            </p>
+          </article>
+
+          <article class="feature-card">
+            <div class="feature-icon" aria-hidden="true">🌐</div>
+            <h3 class="feature-title">Universal Adapters</h3>
+            <p class="feature-desc">
+              First-class adapters for REST APIs, GraphQL endpoints, CLI tools,
+              webhook/event streams, and enterprise catalogs — extensible via
+              simple interfaces.
+            </p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── PRICING ─────────────────────────────────────────────────────────── -->
+    <section id="pricing" class="pricing" aria-labelledby="pricing-title">
+      <div class="container">
+        <div class="text-center">
+          <span class="section-label">Pricing</span>
+          <h2 class="section-title" id="pricing-title">
+            Simple, transparent pricing
+          </h2>
+          <p class="section-lead" style="margin-inline:auto;">
+            Start free for local development. Scale to enterprise with no
+            surprises. All plans include the full feature set.
+          </p>
+        </div>
+
+        <div class="pricing-grid">
+          <!-- Free -->
+          <div class="pricing-card">
+            <div>
+              <p class="pricing-name">Developer</p>
+              <p class="pricing-price">$0<span class="pricing-period">/month</span></p>
+            </div>
+            <p class="pricing-desc">
+              Everything you need for local development and personal projects.
+            </p>
+            <ul class="pricing-features">
+              <li>Up to 5 registered tools</li>
+              <li>3 AI provider connections</li>
+              <li>Community registry access</li>
+              <li>REST &amp; MCP adapters</li>
+              <li>Local deployment only</li>
+              <li>Community support</li>
+            </ul>
+            <a href="/dashboard.html" class="btn btn-outline">Get started free</a>
+          </div>
+
+          <!-- Pro (featured) -->
+          <div class="pricing-card pricing-card--featured">
+            <span class="pricing-featured-badge">MOST POPULAR</span>
+            <div>
+              <p class="pricing-name">Team</p>
+              <p class="pricing-price">$49<span class="pricing-period">/month</span></p>
+            </div>
+            <p class="pricing-desc">
+              For engineering teams building production AI applications.
+            </p>
+            <ul class="pricing-features">
+              <li>Unlimited tools &amp; workflows</li>
+              <li>All AI providers</li>
+              <li>Private registry connectors</li>
+              <li>All protocol adapters</li>
+              <li>Cloud &amp; self-hosted</li>
+              <li>Audit logging &amp; cost tracking</li>
+              <li>Policy engine &amp; approvals</li>
+              <li>Email support</li>
+            </ul>
+            <a href="/dashboard.html" class="btn btn-primary">Start 14-day trial</a>
+          </div>
+
+          <!-- Enterprise -->
+          <div class="pricing-card">
+            <div>
+              <p class="pricing-name">Enterprise</p>
+              <p class="pricing-price" style="font-size:2rem;">Custom</p>
+            </div>
+            <p class="pricing-desc">
+              For organizations requiring compliance, SLAs, and dedicated support.
+            </p>
+            <ul class="pricing-features">
+              <li>Everything in Team</li>
+              <li>SSO / SAML / OIDC</li>
+              <li>Enterprise catalog connectors</li>
+              <li>Multi-tenant isolation</li>
+              <li>Air-gapped deployment</li>
+              <li>Custom policy packs</li>
+              <li>99.9% uptime SLA</li>
+              <li>Dedicated support &amp; SLAs</li>
+            </ul>
+            <a href="mailto:sales@universalstandards.dev" class="btn btn-outline">Contact sales</a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CTA BANNER ──────────────────────────────────────────────────────── -->
+    <section aria-labelledby="cta-title" style="padding:4rem 0;background:linear-gradient(135deg,#312e81,#1e1b4b);">
+      <div class="container text-center">
+        <h2 id="cta-title" style="color:#fff;margin-bottom:1rem;">
+          Ready to orchestrate everything?
+        </h2>
+        <p style="color:rgb(199 210 254/.8);max-width:520px;margin:0 auto 2rem;font-size:1.0625rem;">
+          Spin up the hub in under two minutes. No cloud account required.
+          Just clone, configure, and run.
+        </p>
+        <div style="display:flex;gap:.75rem;flex-wrap:wrap;justify-content:center;">
+          <a href="/dashboard.html" class="btn btn-primary btn-lg">Open Dashboard</a>
+          <a href="/docs.html" class="btn btn-lg" style="background:rgb(255 255 255/.1);color:#fff;border:2px solid rgb(255 255 255/.2);">
+            Read the Docs
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ── Footer ─────────────────────────────────────────────────────────────── -->
+  <footer class="footer" role="contentinfo">
+    <div class="container">
+      <div class="footer-grid">
+        <!-- Brand col -->
+        <div>
+          <div class="footer-brand">
+            <span class="footer-brand-icon" aria-hidden="true">⚡</span>
+            MCP Hub
+          </div>
+          <p class="footer-desc">
+            Universal MCP Orchestration Hub — self-expanding, multi-provider,
+            enterprise-ready AI orchestration.
+          </p>
+          <a href="https://github.com/UniversalStandards/IDEA"
+             style="display:inline-flex;align-items:center;min-height:44px;color:rgb(199 210 254/.7);font-size:.875rem;">
+            GitHub →
+          </a>
+        </div>
+
+        <!-- Links -->
+        <div>
+          <p class="footer-col-title">Product</p>
+          <ul class="footer-links" role="list">
+            <li><a href="/#features">Features</a></li>
+            <li><a href="/#pricing">Pricing</a></li>
+            <li><a href="/dashboard.html">Dashboard</a></li>
+            <li><a href="/docs.html">Documentation</a></li>
+          </ul>
+        </div>
+        <div>
+          <p class="footer-col-title">Developers</p>
+          <ul class="footer-links" role="list">
+            <li><a href="/docs.html#quickstart">Quick Start</a></li>
+            <li><a href="/docs.html#api">API Reference</a></li>
+            <li><a href="/docs.html#adapters">Adapters</a></li>
+            <li><a href="https://github.com/UniversalStandards/IDEA">GitHub</a></li>
+          </ul>
+        </div>
+        <div>
+          <p class="footer-col-title">Company</p>
+          <ul class="footer-links" role="list">
+            <li><a href="/docs.html#security">Security</a></li>
+            <li><a href="https://github.com/UniversalStandards/IDEA/blob/main/LICENSE">License</a></li>
+            <li><a href="https://github.com/UniversalStandards/IDEA/blob/main/CONTRIBUTING.md">Contributing</a></li>
+            <li><a href="https://github.com/UniversalStandards/IDEA/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>© 2026 Universal Standards. Licensed under Apache-2.0.</span>
+        <span>
+          <a href="https://github.com/UniversalStandards/IDEA/blob/main/SECURITY.md"
+             style="display:inline-flex;align-items:center;min-height:44px;color:rgb(199 210 254/.5);">Security Policy</a>
+        </span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/js/nav.js"></script>
+</body>
+</html>
