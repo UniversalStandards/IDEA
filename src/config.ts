@@ -63,7 +63,9 @@ const ConfigSchema = z.object({
 
   // Security
   JWT_SECRET: z.string().min(32).default('change-me-in-production-must-be-32chars!!'),
+  JWT_SECRET_NEW: z.string().min(32).optional(),
   ENCRYPTION_KEY: z.string().min(32).default('change-me-in-production-must-be-32chars!!'),
+  ENCRYPTION_KEY_NEW: z.string().min(32).optional(),
   ENABLE_SIGNATURE_VALIDATION: boolEnv(true),
   CORS_ORIGIN: z
     .string()

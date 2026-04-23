@@ -2,6 +2,7 @@
  * src/api/admin-api.ts
  * Protected admin API endpoints.
  * All routes require a valid JWT Bearer token signed with JWT_SECRET.
+ * During key rotation, tokens signed with JWT_SECRET_NEW are also accepted.
  */
 
 import { Router, type Request, type Response, type NextFunction } from 'express';
@@ -11,6 +12,7 @@ import { createLogger } from '../observability/logger';
 import { getConfig } from '../config';
 import { runtimeManager } from '../core/runtime-manager';
 import { auditLog } from '../security/audit';
+import { rotateEncryptionKey } from '../security/secret-store';
 
 const logger = createLogger('admin-api');
 
@@ -18,6 +20,8 @@ export const adminRouter = Router();
 
 // ─────────────────────────────────────────────────────────────────
 // JWT Authentication Middleware
+// Supports dual-secret verification during key rotation:
+// accepts tokens signed with either JWT_SECRET or JWT_SECRET_NEW.
 // ─────────────────────────────────────────────────────────────────
 
 function requireAuth(req: Request, res: Response, next: NextFunction): void {
@@ -28,18 +32,29 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
   }
 
   const token = authHeader.slice(7);
-  try {
-    const cfg = getConfig();
-    const decoded = jwt.verify(token, cfg.JWT_SECRET);
-    // Attach decoded payload to request for downstream use
-    (req as Request & { jwtPayload: unknown }).jwtPayload = decoded;
-    next();
-  } catch (err) {
-    logger.warn('Admin API: JWT verification failed', {
-      err: err instanceof Error ? err.message : String(err),
-    });
-    res.status(401).json({ error: 'Invalid or expired token' });
+  const cfg = getConfig();
+
+  // Try secrets in order: JWT_SECRET_NEW (new secret during rotation), then JWT_SECRET (current/old)
+  const secretsToTry: string[] = [];
+  if (cfg.JWT_SECRET_NEW !== undefined) {
+    secretsToTry.push(cfg.JWT_SECRET_NEW);
   }
+  secretsToTry.push(cfg.JWT_SECRET);
+
+  for (const secret of secretsToTry) {
+    try {
+      const decoded = jwt.verify(token, secret);
+      // Attach decoded payload to request for downstream use
+      (req as Request & { jwtPayload: unknown }).jwtPayload = decoded;
+      next();
+      return;
+    } catch {
+      // Try next secret
+    }
+  }
+
+  logger.warn('Admin API: JWT verification failed against all configured secrets');
+  res.status(401).json({ error: 'Invalid or expired token' });
 }
 
 // Apply auth middleware to all admin routes
@@ -53,9 +68,10 @@ adminRouter.use(requireAuth);
 adminRouter.get('/capabilities', (req: Request, res: Response) => {
   try {
     // runtimeManager.getCapabilities() may not exist in all versions
+    const rm = runtimeManager as unknown as Record<string, unknown>;
     const capabilities =
-      typeof (runtimeManager as unknown as Record<string, unknown>).getCapabilities === 'function'
-        ? (runtimeManager as unknown as { getCapabilities: () => unknown[] }).getCapabilities()
+      typeof rm['getCapabilities'] === 'function'
+        ? (rm['getCapabilities'] as () => unknown[])()
         : [];
 
     auditLog.record('admin.capabilities.list', 'admin', 'runtime', 'success', undefined, {
@@ -193,5 +209,58 @@ adminRouter.get('/audit', (req: Request, res: Response) => {
   } catch (err) {
     logger.error('Failed to retrieve audit entries', { err });
     res.status(500).json({ error: 'Failed to retrieve audit entries' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// POST /admin/security/rotate-key
+// Rotates the ENCRYPTION_KEY by re-encrypting all in-memory secrets
+// with the new key (ENCRYPTION_KEY_NEW). Requires JWT auth and a
+// confirmation flag to prevent accidental execution.
+// ─────────────────────────────────────────────────────────────────
+
+const rotateKeyBodySchema = z.object({
+  /** Must be set to true to confirm the destructive operation. */
+  confirm: z.literal(true),
+  /** The new encryption key (must be ≥32 characters). */
+  newKey: z.string().min(32),
+});
+
+adminRouter.post('/security/rotate-key', async (req: Request, res: Response) => {
+  const parsed = rotateKeyBodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({
+      error: 'Invalid request body',
+      details: parsed.error.issues,
+      hint: 'Body must contain { "confirm": true, "newKey": "<min-32-char-key>" }',
+    });
+    return;
+  }
+
+  const { newKey } = parsed.data;
+  const cfg = getConfig();
+
+  try {
+    const result = await rotateEncryptionKey(cfg.ENCRYPTION_KEY, newKey);
+
+    auditLog.record('admin.security.rotate-key', 'admin', 'secret-store', 'success', undefined, {
+      rotatedCount: result.rotatedCount,
+    });
+
+    logger.info('Encryption key rotation complete', { rotatedCount: result.rotatedCount });
+
+    res.json({
+      message: 'Encryption key rotation complete',
+      rotatedCount: result.rotatedCount,
+      hint: 'Update ENCRYPTION_KEY to the new value and remove ENCRYPTION_KEY_NEW from your environment.',
+    });
+  } catch (err) {
+    logger.error('Encryption key rotation failed', { err });
+
+    auditLog.record('admin.security.rotate-key', 'admin', 'secret-store', 'failure', undefined, {
+      error: err instanceof Error ? err.message : String(err),
+    });
+
+    res.status(500).json({ error: 'Encryption key rotation failed' });
   }
 });
