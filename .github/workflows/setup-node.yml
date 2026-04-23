@@ -1,0 +1,84 @@
+name: Setup Node.js
+
+# Reusable workflow: standardises Node.js + npm-ci setup across all jobs.
+# Callers use:
+#   jobs:
+#     setup:
+#       uses: ./.github/workflows/setup-node.yml
+#       with:
+#         node-version: '20'   # optional — omit to use .nvmrc
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: >
+          Explicit Node.js version to install (e.g. '20', '22').
+          When omitted the version is read from .nvmrc.
+        required: false
+        type: string
+        default: ''
+      working-directory:
+        description: Directory in which to run `npm ci`.
+        required: false
+        type: string
+        default: '.'
+      cache-dependency-path:
+        description: >
+          Path(s) to package-lock.json used to generate the npm cache key.
+          Accepts the same glob syntax as `actions/setup-node`.
+        required: false
+        type: string
+        default: 'package-lock.json'
+      skip-install:
+        description: >
+          Set to `true` to skip the `npm ci` step (useful when the caller
+          only needs Node.js on PATH without installing dependencies).
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      node-version:
+        description: The resolved Node.js version that was installed.
+        value: ${{ jobs.setup.outputs.node-version }}
+
+jobs:
+  setup:
+    name: Setup Node.js
+    runs-on: ubuntu-latest
+    outputs:
+      node-version: ${{ steps.export-version.outputs.node-version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js (explicit version)
+        id: setup-node
+        if: inputs.node-version != ''
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Setup Node.js (from .nvmrc)
+        id: setup-node-nvmrc
+        if: inputs.node-version == ''
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      # Combine both conditional branches into a single output so callers
+      # always get a resolved version regardless of which step ran.
+      - name: Export resolved Node.js version
+        id: export-version
+        run: |
+          VERSION="${{ steps.setup-node.outputs.node-version || steps.setup-node-nvmrc.outputs.node-version }}"
+          echo "node-version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        if: ${{ !inputs.skip-install }}
+        run: npm ci
+        working-directory: ${{ inputs.working-directory }}

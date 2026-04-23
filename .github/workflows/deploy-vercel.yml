@@ -1,0 +1,217 @@
+name: Deploy to Vercel
+
+# Consolidated Vercel deployment workflow covering both preview and production.
+# Automated per-PR previews and post-merge production deploys are handled
+# by deploy-preview.yml and deploy-production.yml respectively; this workflow
+# adds a manual (workflow_dispatch) trigger and an on-tag production gate.
+#
+# Required secrets:
+#   VERCEL_TOKEN       — Vercel personal access token
+#   VERCEL_ORG_ID      — Vercel team / org ID  (Settings → General → Team ID)
+#   VERCEL_PROJECT_ID  — Vercel project ID      (Project → Settings → General)
+#
+# Required environments (repo Settings → Environments):
+#   preview     — used for PR and branch deployments
+#   production  — used for main-branch and tag deployments
+
+on:
+  push:
+    branches: [main]
+    # Also trigger on version tags so each release gets an immutable Vercel URL.
+    tags:
+      - 'v*.*.*'
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-vercel.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/workflows/deploy-vercel.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Deployment target
+        required: true
+        default: preview
+        type: choice
+        options:
+          - preview
+          - production
+      ref:
+        description: >
+          Git ref to deploy (branch, tag, or commit SHA).
+          Defaults to the ref that triggered the workflow.
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  pull-requests: write
+  deployments: write
+
+concurrency:
+  group: vercel-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+# ──────────────────────────────────────────────────────────
+# Preview deployment — pull requests and manual preview runs
+# ──────────────────────────────────────────────────────────
+jobs:
+  deploy-preview:
+    name: Deploy preview to Vercel
+    runs-on: ubuntu-latest
+    if: >
+      hashFiles('web/package.json') != '' &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'preview'))
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Check Vercel configuration
+        id: vercel-config
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Vercel secrets are not configured; skipping preview deployment."
+          fi
+
+      - name: Deploy preview to Vercel
+        id: deploy
+        if: steps.vercel-config.outputs.enabled == 'true'
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel pull --yes --environment=preview --token "$VERCEL_TOKEN"
+          DEPLOY_OUTPUT="$(npx vercel deploy --yes --token "$VERCEL_TOKEN")"
+          DEPLOY_URL="$(echo "$DEPLOY_OUTPUT" | tail -n 1)"
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "Failed to determine preview deployment URL." >&2
+            exit 1
+          fi
+          case "$DEPLOY_URL" in
+            http*) ;;
+            *.vercel.app) DEPLOY_URL="https://$DEPLOY_URL" ;;
+            *)
+              echo "Unexpected preview deployment URL output: $DEPLOY_URL" >&2
+              exit 1
+              ;;
+          esac
+          echo "url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL on PR
+        if: >
+          steps.vercel-config.outputs.enabled == 'true' &&
+          github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          PREVIEW_URL: ${{ steps.deploy.outputs.url }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `✅ **Vercel preview deployed:** ${process.env.PREVIEW_URL}`
+            });
+
+  # ──────────────────────────────────────────────────────────
+  # Production deployment — push to main, version tags, or
+  # manual production run
+  # ──────────────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy production to Vercel
+    runs-on: ubuntu-latest
+    if: >
+      hashFiles('web/package.json') != '' &&
+      (github.event_name == 'push' ||
+       (github.event_name == 'workflow_dispatch' && inputs.environment == 'production'))
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6.3.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Check Vercel configuration
+        id: vercel-config
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          if [ -n "$VERCEL_TOKEN" ] && [ -n "$VERCEL_ORG_ID" ] && [ -n "$VERCEL_PROJECT_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "Vercel secrets are not configured; skipping production deployment."
+          fi
+
+      - name: Deploy production to Vercel
+        id: deploy
+        if: steps.vercel-config.outputs.enabled == 'true'
+        working-directory: web
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npx vercel pull --yes --environment=production --token "$VERCEL_TOKEN"
+          npx vercel build --prod --token "$VERCEL_TOKEN"
+          DEPLOY_OUTPUT="$(npx vercel deploy --prebuilt --prod --token "$VERCEL_TOKEN")"
+          DEPLOY_URL="$(echo "$DEPLOY_OUTPUT" | tail -n 1)"
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "Failed to determine production deployment URL." >&2
+            exit 1
+          fi
+          case "$DEPLOY_URL" in
+            http*) ;;
+            *.vercel.app) DEPLOY_URL="https://$DEPLOY_URL" ;;
+            *)
+              echo "Unexpected production deployment URL output: $DEPLOY_URL" >&2
+              exit 1
+              ;;
+          esac
+          echo "url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
