@@ -67,7 +67,7 @@ describe('redis-client', () => {
       expect(first).toBe(second);
     });
 
-    it('returns null after client is manually cleared via _setRedisClient(null)', () => {
+    it('returns null when REDIS_URL is deleted after clearing client', () => {
       process.env['REDIS_URL'] = 'redis://localhost:6379';
       getRedis(); // initialise singleton
       _setRedisClient(null);

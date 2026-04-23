@@ -37,7 +37,9 @@ export function getRedis(): Redis | null {
   if (!url) return null;
 
   // Prevent creating multiple clients if called concurrently before the first
-  // connection is established.
+  // client object is assigned to `_client`.  Any caller that arrives during
+  // this brief window receives `null` and falls back to in-memory — this is
+  // intentional: Redis is an optional performance layer, not a hard dependency.
   if (_connecting) return null;
   _connecting = true;
 
@@ -48,16 +50,19 @@ export function getRedis(): Redis | null {
     // without a reachable Redis instance.
     maxRetriesPerRequest: 3,
     // Reconnect with exponential back-off, capped at 10 s.
-    retryStrategy(times: number): number | null {
-      if (times > 10) {
+    retryStrategy(attemptNumber: number): number | null {
+      if (attemptNumber > 10) {
         logger.error('Redis: max reconnect attempts exceeded — giving up');
         return null; // stop retrying
       }
-      const delay = Math.min(times * 200, 10_000);
-      logger.warn(`Redis: reconnecting in ${delay}ms (attempt ${times})`);
+      const delay = Math.min(attemptNumber * 200, 10_000);
+      logger.warn(`Redis: reconnecting in ${delay}ms (attempt ${attemptNumber})`);
       return delay;
     },
     enableReadyCheck: true,
+    // Connect eagerly so commands issued immediately after construction succeed.
+    // The singleton is created lazily (on first getRedis() call), so the net
+    // effect is still a lazy connection from the application's perspective.
     lazyConnect: false,
   });
 

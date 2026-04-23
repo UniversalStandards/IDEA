@@ -6,7 +6,10 @@ import { getRedis } from '../core/redis-client';
 
 const logger = createLogger('scheduler');
 
-// Redis key for distributed queue depth (shared across all hub instances)
+// Redis keys for distributed queue depth (shared across all hub instances).
+// These keys represent the most-recently-observed state from any instance — a
+// last-writer-wins approach that is appropriate for observability counters where
+// exact precision is less important than cluster-wide visibility.
 const REDIS_QUEUE_DEPTH_KEY = 'scheduler:queue_depth';
 const REDIS_RUNNING_KEY = 'scheduler:running';
 
@@ -160,9 +163,11 @@ export class Scheduler {
         REDIS_QUEUE_DEPTH_KEY,
         REDIS_RUNNING_KEY,
       );
+      const parsedQueued = queuedRaw != null ? parseInt(queuedRaw, 10) : NaN;
+      const parsedRunning = runningRaw != null ? parseInt(runningRaw, 10) : NaN;
       return {
-        queued: queuedRaw != null ? parseInt(queuedRaw, 10) : this.queue.length,
-        running: runningRaw != null ? parseInt(runningRaw, 10) : this.running,
+        queued: !isNaN(parsedQueued) ? parsedQueued : this.queue.length,
+        running: !isNaN(parsedRunning) ? parsedRunning : this.running,
         completed: this.completed,
         failed: this.failed,
         distributed: true,
