@@ -98,6 +98,11 @@ const ConfigSchema = z.object({
   COST_TRACKING_ENABLED: boolEnv(true),
   COST_BUDGET_DAILY_USD: floatEnv(0, 0),
 
+  // Circuit Breaker / Provider Routing
+  CIRCUIT_BREAKER_FAILURE_THRESHOLD: intEnv(5, 1, 100),
+  CIRCUIT_BREAKER_COOLDOWN_MS: intEnv(60_000, 1000),
+  PROVIDER_HEALTH_CHECK_INTERVAL_MS: intEnv(60_000, 1000),
+
   // Runtime / Provisioning
   CACHE_TTL: intEnv(300, 0),
   MAX_CONCURRENT_INSTALLS: intEnv(5, 1, 100),
