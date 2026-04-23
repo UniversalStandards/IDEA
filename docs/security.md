@@ -94,17 +94,157 @@ Entries are appended as JSONL to `runtime/audit.jsonl`. Rotation and archival ar
 
 ## 7. Key Rotation Procedure
 
-### Rotating `JWT_SECRET` (zero-downtime)
-1. Generate a new secret: `openssl rand -hex 32`
-2. Add the new secret as `JWT_SECRET_NEW` to the environment
-3. Update the JWT verification middleware to accept tokens signed with either `JWT_SECRET` or `JWT_SECRET_NEW`
-4. Issue new tokens signed with `JWT_SECRET_NEW`
-5. Wait until all existing tokens expire (or force-revoke them)
-6. Replace `JWT_SECRET` with `JWT_SECRET_NEW` and remove the dual-verification logic
+### Overview
 
-### Rotating `ENCRYPTION_KEY`
-1. Generate a new key: `openssl rand -hex 32`
-2. Decrypt all secrets in the SecretStore with the old key
-3. Re-encrypt them with the new key
-4. Swap the `ENCRYPTION_KEY` environment variable
-5. Update the `HMAC` signatures in the audit log if required by your compliance policy
+Zero-downtime rotation is achieved through a **dual-secret window**: both the outgoing key and the
+incoming key are accepted simultaneously during the transition period. Once all clients have
+migrated to tokens or secrets encrypted with the new key, the old key is removed.
+
+---
+
+### 7.1 Rotating `JWT_SECRET` (zero-downtime)
+
+**Step 1 — Generate a new secret**
+
+```bash
+openssl rand -hex 32
+# Example output: a3f8c2...  (64 hex chars = 256 bits)
+```
+
+**Step 2 — Add `JWT_SECRET_NEW` to the environment (without removing `JWT_SECRET`)**
+
+```bash
+# .env / deployment config
+JWT_SECRET=<current-secret>
+JWT_SECRET_NEW=<new-secret>
+```
+
+Restart or send `SIGHUP` to the hub. The `requireAuth` middleware in `src/api/admin-api.ts` now
+accepts tokens signed with **either** `JWT_SECRET_NEW` or `JWT_SECRET`.
+
+**Step 3 — Issue new tokens signed with `JWT_SECRET_NEW`**
+
+```bash
+# Ensure JWT_SECRET_NEW is exported in the current shell, then run:
+JWT_SECRET_NEW=<new-secret> node -e "
+  const jwt = require('jsonwebtoken');
+  console.log(jwt.sign({ sub: 'admin', role: 'admin' }, process.env.JWT_SECRET_NEW, { expiresIn: '1h' }));
+"
+```
+
+Replace all service accounts, scripts, and CI/CD pipelines with tokens generated from `JWT_SECRET_NEW`.
+
+**Step 4 — Wait for old tokens to expire**
+
+JWT tokens contain an `exp` claim. Wait until the maximum TTL of any token issued with the old
+`JWT_SECRET` has elapsed (e.g., 1 hour for `expiresIn: '1h'`). Alternatively, force-revoke by
+updating `JWT_SECRET` now if revocation is acceptable.
+
+**Step 5 — Promote `JWT_SECRET_NEW` to `JWT_SECRET`**
+
+```bash
+# .env / deployment config — remove the old secret entirely
+JWT_SECRET=<new-secret>
+# JWT_SECRET_NEW is no longer set
+```
+
+Restart or send `SIGHUP`. The middleware reverts to single-secret verification.
+
+**Implementation note**: The `requireAuth` middleware in `src/api/admin-api.ts` implements this
+logic by iterating over `[JWT_SECRET_NEW, JWT_SECRET]` (when both are present) and accepting the
+first successful verification.
+
+---
+
+### 7.2 Rotating `ENCRYPTION_KEY` (zero-downtime, in-process)
+
+The preferred method for live systems is the Admin API endpoint, which performs the rotation
+in-process with no downtime.
+
+**Step 1 — Generate a new key**
+
+```bash
+openssl rand -hex 32
+```
+
+**Step 2 — Set `ENCRYPTION_KEY_NEW` in the environment**
+
+```bash
+ENCRYPTION_KEY=<current-key>
+ENCRYPTION_KEY_NEW=<new-key>
+```
+
+**Step 3 — Trigger in-process rotation via the Admin API**
+
+```bash
+curl -X POST http://localhost:3000/admin/security/rotate-key \
+  -H "Authorization: Bearer <admin-jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{ "confirm": true, "newKey": "<new-key>" }'
+```
+
+Expected response:
+
+```json
+{
+  "message": "Encryption key rotation complete",
+  "rotatedCount": 42,
+  "hint": "Update ENCRYPTION_KEY to the new value and remove ENCRYPTION_KEY_NEW from your environment."
+}
+```
+
+The endpoint (`POST /admin/security/rotate-key`) requires:
+- A valid JWT Bearer token (enforced by `requireAuth`).
+- `{ "confirm": true }` in the request body to prevent accidental invocation.
+- `{ "newKey": "<min-32-char-key>" }` — the new encryption key.
+
+**Step 4 — Promote `ENCRYPTION_KEY_NEW` to `ENCRYPTION_KEY`**
+
+```bash
+ENCRYPTION_KEY=<new-key>
+# ENCRYPTION_KEY_NEW is no longer set
+```
+
+Restart or send `SIGHUP`.
+
+---
+
+### 7.3 Rotating `ENCRYPTION_KEY` (offline, via script)
+
+Use this approach when the hub is stopped (e.g., during a maintenance window) or when rotating
+secrets stored in the persisted `runtime/secrets.json` file.
+
+```bash
+OLD_KEY=<current-key> NEW_KEY=<new-key> \
+  tsx scripts/rotate-encryption-key.ts [--store-path <path>]
+```
+
+Default store path: `runtime/secrets.json`
+
+The script:
+1. Reads the encrypted store from disk.
+2. Decrypts each secret with `OLD_KEY`.
+3. Re-encrypts with `NEW_KEY` using a fresh AES-256-GCM IV per secret.
+4. Writes the updated store atomically (temp file + rename) with `chmod 600`.
+5. Prints a summary: rotated count, skipped count.
+
+After the script succeeds, update `ENCRYPTION_KEY` and restart the hub.
+
+---
+
+### 7.4 Updating HMAC Signatures in the Audit Log
+
+Audit entries in `runtime/audit.jsonl` are HMAC-SHA256 signed with `ENCRYPTION_KEY`. After key
+rotation, historical entries remain valid under the old key signature. If your compliance policy
+requires re-signing:
+
+1. Process `runtime/audit.jsonl` line-by-line.
+2. Parse each JSON entry.
+3. Verify the old HMAC (using `oldKey`).
+4. Recompute HMAC with `newKey` over the same fields: `{ id, action, actor, resource, outcome, correlationId }`.
+5. Replace the `hmac` field and write to a new file.
+6. Replace the original file atomically.
+
+> **Note**: Re-signing audit logs changes the tamper-evidence guarantee for historical entries.
+> Consult your compliance team before doing this.
+

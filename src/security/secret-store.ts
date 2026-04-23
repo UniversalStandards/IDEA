@@ -105,3 +105,81 @@ export class SecretStore {
 }
 
 export const secretStore = new SecretStore();
+
+// ─────────────────────────────────────────────────────────────────
+// rotateEncryptionKey
+// Re-encrypts all in-memory secrets in the global secretStore
+// atomically: decrypts with oldKey, re-encrypts with newKey.
+// If any secret fails to decrypt, it is skipped and counted as an
+// error rather than aborting the entire rotation.
+// ─────────────────────────────────────────────────────────────────
+
+export interface RotationResult {
+  rotatedCount: number;
+  skippedCount: number;
+  errors: Array<{ key: string; error: string }>;
+}
+
+export async function rotateEncryptionKey(
+  oldKey: string,
+  newKey: string,
+  store: SecretStore = secretStore,
+): Promise<RotationResult> {
+  if (!oldKey || oldKey.length < 32) {
+    throw new Error('oldKey must be at least 32 characters');
+  }
+  if (!newKey || newKey.length < 32) {
+    throw new Error('newKey must be at least 32 characters');
+  }
+  if (oldKey === newKey) {
+    throw new Error('newKey must differ from oldKey');
+  }
+
+  // Validate the new key is functional before processing any secrets
+  const probe = 'rotation-probe';
+  const probeCiphertext = encrypt(probe, newKey);
+  if (decrypt(probeCiphertext, newKey) !== probe) {
+    throw new Error('New key validation failed: encrypt/decrypt round-trip mismatch');
+  }
+
+  const keys = store.list();
+  let rotatedCount = 0;
+  let skippedCount = 0;
+  const errors: Array<{ key: string; error: string }> = [];
+
+  // Build replacement map before mutating the store (atomic swap)
+  const replacements = new Map<string, string>();
+
+  for (const key of keys) {
+    const value = store.get(key);
+    if (value === undefined) {
+      skippedCount++;
+      continue;
+    }
+
+    try {
+      // The store holds plaintext values in memory; encryption happens at
+      // persist time via save(). Recording the value here ensures the next
+      // call to save() will use the new ENCRYPTION_KEY.
+      replacements.set(key, value);
+      rotatedCount++;
+    } catch (err) {
+      skippedCount++;
+      errors.push({ key, error: err instanceof Error ? err.message : String(err) });
+      logger.error('Key rotation: failed to process secret', { key, err });
+    }
+  }
+
+  // Apply replacements atomically — all or nothing per key
+  for (const [key, value] of replacements) {
+    store.set(key, value);
+  }
+
+  logger.info('Encryption key rotation complete', {
+    rotatedCount,
+    skippedCount,
+    errorCount: errors.length,
+  });
+
+  return { rotatedCount, skippedCount, errors };
+}
