@@ -31,6 +31,8 @@ export function ApiKeys({ token: _token }: ApiKeysProps) {
 
   const handleCreate = () => {
     if (!newKeyName.trim()) { showToast('Enter a key name', 'error'); return; }
+    // NOTE: In production, API keys must be generated server-side using cryptographically
+    // secure randomness. This is mock/demo UI only.
     const generated = `sk-${Math.random().toString(36).slice(2, 14)}-${Math.random().toString(36).slice(2, 10)}`;
     setKeys((prev) => [...prev, { id: String(Date.now()), name: newKeyName, key: `sk-...${generated.slice(-4)}`, created: new Date().toISOString().slice(0, 10), lastUsed: 'Never' }]);
     setNewKey(generated);
