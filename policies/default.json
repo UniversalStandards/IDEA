@@ -1,5 +1,4 @@
 {
-  "$schema": "../src/policy/policy-schema.json",
   "version": "1.0.0",
   "description": "Default policy pack — shipped with the repository. Mirrors the built-in DEFAULT_POLICIES so that the file-based loader (tracked in issue #8) will produce identical behaviour once implemented.",
   "policies": [
