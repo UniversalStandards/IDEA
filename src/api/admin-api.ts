@@ -11,6 +11,7 @@ import { createLogger } from '../observability/logger';
 import { getConfig } from '../config';
 import { runtimeManager } from '../core/runtime-manager';
 import { auditLog } from '../security/audit';
+import { policyEngine } from '../policy/policy-engine';
 
 const logger = createLogger('admin-api');
 
@@ -112,11 +113,18 @@ adminRouter.delete('/capabilities/:id', (req: Request, res: Response) => {
 
 adminRouter.get('/policies', (_req: Request, res: Response) => {
   try {
-    // Policy engine integration will be wired here once policy-engine exposes getPolicies()
+    const policies = policyEngine.getPolicies();
+    const metrics = policyEngine.getMetrics();
     res.json({
-      policies: [],
-      count: 0,
-      message: 'Policy listing available after policy-engine is fully initialized',
+      policies: policies.map((p) => ({
+        id: p.id,
+        name: p.name,
+        priority: p.priority,
+        enabled: p.enabled,
+        ruleCount: p.rules.length,
+      })),
+      count: policies.length,
+      metrics,
     });
   } catch (err) {
     logger.error('Failed to retrieve policies', { err });
