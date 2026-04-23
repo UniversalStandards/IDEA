@@ -20,7 +20,7 @@ const BUILTIN_PROVIDERS: AIProvider[] = [
     id: 'openai',
     name: 'OpenAI',
     baseUrl: process.env['OPENAI_BASE_URL'] ?? 'https://api.openai.com',
-    apiKey: process.env['OPENAI_API_KEY'],
+    ...(process.env['OPENAI_API_KEY'] !== undefined ? { apiKey: process.env['OPENAI_API_KEY'] } : {}),
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     maxTokens: 128000,
     capabilities: ['chat', 'completion', 'embedding', 'vision', 'code', 'function_calling'],
@@ -29,7 +29,7 @@ const BUILTIN_PROVIDERS: AIProvider[] = [
     id: 'anthropic',
     name: 'Anthropic',
     baseUrl: process.env['ANTHROPIC_BASE_URL'] ?? 'https://api.anthropic.com',
-    apiKey: process.env['ANTHROPIC_API_KEY'],
+    ...(process.env['ANTHROPIC_API_KEY'] !== undefined ? { apiKey: process.env['ANTHROPIC_API_KEY'] } : {}),
     models: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
     maxTokens: 200000,
     capabilities: ['chat', 'completion', 'vision', 'code', 'function_calling'],
@@ -38,7 +38,7 @@ const BUILTIN_PROVIDERS: AIProvider[] = [
     id: 'google',
     name: 'Google Gemini',
     baseUrl: process.env['GOOGLE_BASE_URL'] ?? 'https://generativelanguage.googleapis.com',
-    apiKey: process.env['GOOGLE_API_KEY'],
+    ...(process.env['GOOGLE_API_KEY'] !== undefined ? { apiKey: process.env['GOOGLE_API_KEY'] } : {}),
     models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
     maxTokens: 1000000,
     capabilities: ['chat', 'completion', 'vision', 'code', 'embedding'],
@@ -150,6 +150,23 @@ export class ProviderRouter {
 
   getProvider(id: string): AIProvider | undefined {
     return this.providers.get(id);
+  }
+
+  /**
+   * Returns the cached health snapshot for every registered provider.
+   * Used by the monitoring dashboard and metrics stream without exposing
+   * the private `healthCache` map.
+   */
+  getProviderHealthSnapshot(): Array<{ id: string; name: string; healthy: boolean | null; checkedAt: string | null }> {
+    return Array.from(this.providers.values()).map((p) => {
+      const health = this.healthCache.get(p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        healthy: health ? health.healthy : null,
+        checkedAt: health ? new Date(health.checkedAt).toISOString() : null,
+      };
+    });
   }
 }
 
