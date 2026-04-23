@@ -411,8 +411,8 @@ export class TrustEvaluator extends EventEmitter {
     const semverMatch = /^(\d+)\.(\d+)\./.exec(tool.version);
     let versionScore = 0.5;
     if (semverMatch) {
-      const major = parseInt(semverMatch[1] ?? '0', 10);
-      const minor = parseInt(semverMatch[2] ?? '0', 10);
+      const major = parseInt(semverMatch[1]!, 10);
+      const minor = parseInt(semverMatch[2]!, 10);
       if (major >= 1) versionScore = 1.0;
       else if (minor >= 5) versionScore = 0.6;
       else versionScore = 0.3;

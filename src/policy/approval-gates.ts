@@ -13,7 +13,7 @@ export interface ApprovalRequest {
   action: string;
   requestedBy: string;
   reason: string;
-  metadata: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
   status: ApprovalStatus;
   createdAt: string;
   resolvedAt?: string;
