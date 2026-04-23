@@ -10,7 +10,9 @@ import { Router, type Request, type Response } from 'express';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
 import { runtimeManager } from '../core/runtime-manager';
-import type { HealthStatus } from '../types/index';
+import { providerRouter } from '../routing/provider-router';
+import { CircuitBreakerState } from '../types/index';
+import type { HealthCheckResult, HealthStatus } from '../types/index';
 
 const logger = createLogger('health');
 
@@ -22,6 +24,31 @@ export const healthRouter = Router();
 const startedAt = Date.now();
 
 function buildHealthResponse(ready: boolean): HealthStatus {
+  const checks: Record<string, HealthCheckResult> = {
+    runtime: {
+      status: ready ? 'ok' : 'unavailable',
+      message: ready ? 'Runtime manager initialized' : 'Runtime manager not yet ready',
+    },
+    memory: {
+      status: 'ok',
+      message: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB heap used`,
+    },
+  };
+
+  // Expose circuit breaker state for every registered provider.
+  const cbStates = providerRouter.getCircuitBreakerStates();
+  for (const [id, state] of Object.entries(cbStates)) {
+    let cbStatus: HealthCheckResult['status'];
+    if (state === CircuitBreakerState.CLOSED) {
+      cbStatus = 'ok';
+    } else if (state === CircuitBreakerState.HALF_OPEN) {
+      cbStatus = 'degraded';
+    } else {
+      cbStatus = 'unavailable';
+    }
+    checks[`provider:${id}`] = { status: cbStatus, message: state };
+  }
+
   return {
     status: ready ? 'ok' : 'degraded',
     version,
@@ -29,16 +56,7 @@ function buildHealthResponse(ready: boolean): HealthStatus {
     environment: process.env['NODE_ENV'] ?? 'unknown',
     uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
     timestamp: new Date(),
-    checks: {
-      runtime: {
-        status: ready ? 'ok' : 'unavailable',
-        message: ready ? 'Runtime manager initialized' : 'Runtime manager not yet ready',
-      },
-      memory: {
-        status: 'ok',
-        message: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB heap used`,
-      },
-    },
+    checks,
   };
 }
 
