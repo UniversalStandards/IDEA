@@ -177,6 +177,17 @@ function scoreToRiskLevel(overall: number): RiskLevel {
   return RiskLevel.CRITICAL;
 }
 
+const SEMVER_REGEX = /^\d+\.\d+\.\d+/;
+
+/** Weights used in the pipeline risk scoring (must sum to 1.0). */
+const PIPELINE_WEIGHTS = {
+  PROVENANCE: 0.25,
+  SIGNATURE: 0.25,
+  AGE: 0.15,
+  DOWNLOADS: 0.15,
+  POLICY: 0.20,
+} as const;
+
 const MIN_REQUIRED_BY_ACTION: Record<string, number> = {
   install: 50,
   execute: 25,
@@ -285,8 +296,7 @@ export class TrustEvaluator extends EventEmitter {
     if (!tool.version || tool.version.trim() === '') metadataIssues.push('version is missing');
     if (!tool.author) metadataIssues.push('author is absent');
     if (!tool.publishedAt) metadataIssues.push('publishedAt is absent');
-    const semverRegex = /^\d+\.\d+\.\d+/;
-    if (tool.version && !semverRegex.test(tool.version)) {
+    if (tool.version && !SEMVER_REGEX.test(tool.version)) {
       metadataIssues.push('version does not follow semver');
     }
     const metadataPassed = metadataIssues.length === 0;
@@ -324,7 +334,8 @@ export class TrustEvaluator extends EventEmitter {
     });
 
     // ── Stage 4: Signature / Provenance ────────────────────────────
-    const slsaLevel = tool.slsaLevel ?? (tool.metadata?.['slsaLevel'] as number | undefined) ?? 0;
+    const metadataSlsa = tool.metadata?.['slsaLevel'];
+    const slsaLevel = tool.slsaLevel ?? (typeof metadataSlsa === 'number' ? metadataSlsa : 0);
     const sigPassed = tool.signatureValid === true;
     const provenancePassed = sigPassed && slsaLevel >= 2;
     stageResults.push({
@@ -400,8 +411,8 @@ export class TrustEvaluator extends EventEmitter {
     const semverMatch = /^(\d+)\.(\d+)\./.exec(tool.version);
     let versionScore = 0.5;
     if (semverMatch) {
-      const major = parseInt(semverMatch[1]!, 10);
-      const minor = parseInt(semverMatch[2]!, 10);
+      const major = parseInt(semverMatch[1] ?? '0', 10);
+      const minor = parseInt(semverMatch[2] ?? '0', 10);
       if (major >= 1) versionScore = 1.0;
       else if (minor >= 5) versionScore = 0.6;
       else versionScore = 0.3;
@@ -435,7 +446,11 @@ export class TrustEvaluator extends EventEmitter {
 
     // Weighted overall (0–1)
     const overall = Math.round(
-      (provenance * 0.25 + signature * 0.25 + age * 0.15 + downloads * 0.15 + policy * 0.20) * 100,
+      (provenance * PIPELINE_WEIGHTS.PROVENANCE +
+        signature * PIPELINE_WEIGHTS.SIGNATURE +
+        age * PIPELINE_WEIGHTS.AGE +
+        downloads * PIPELINE_WEIGHTS.DOWNLOADS +
+        policy * PIPELINE_WEIGHTS.POLICY) * 100,
     ) / 100;
 
     const riskLevel = scoreToRiskLevel(overall);
@@ -517,19 +532,17 @@ export class TrustEvaluator extends EventEmitter {
       });
     } else {
       requiresApproval = true;
-      // Route to approval gate for HIGH/CRITICAL risk tools
-      if (riskLevel === 'high' || riskLevel === 'critical') {
-        try {
-          void approvalGate.request(
-            tool.id,
-            action,
-            requestedBy,
-            `Trust score ${overall} requires human review (risk: ${riskLevel})`,
-            { trustScore, riskLevel },
-          );
-        } catch (err) {
-          logger.warn('Failed to submit approval gate request', { toolId: tool.id, err });
-        }
+      // Route to approval gate for HIGH/CRITICAL risk tools — fire and forget, errors logged
+      if (riskLevel === RiskLevel.HIGH || riskLevel === RiskLevel.CRITICAL) {
+        approvalGate.request(
+          tool.id,
+          action,
+          requestedBy,
+          `Trust score ${overall} requires human review (risk: ${riskLevel})`,
+          { overall, riskLevel },
+        ).catch((err: unknown) => {
+          logger.warn('Approval gate request failed', { toolId: tool.id, err });
+        });
       }
       stageResults.push({
         stage: 7,
