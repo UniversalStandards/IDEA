@@ -5,6 +5,7 @@
  */
 
 import express, { type Express, type Request, type Response, type NextFunction } from 'express';
+import path from 'path';
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
@@ -77,6 +78,18 @@ export class Server {
     this.app.use('/health', healthRouter);
     this.app.use('/status', statusRouter);
     this.app.use('/admin', adminRouter);
+
+    // ── Serve Admin UI static files ──────────────────────────────────────
+    const webDistPath = path.join(__dirname, '../../web/dist');
+    this.app.use('/admin-ui', express.static(webDistPath));
+    // SPA fallback: serve index.html for any /admin-ui/* path not matched by a static file
+    // Express 5 uses path-to-regexp v8 which requires named wildcards — use app.use instead
+    this.app.use('/admin-ui', (_req: Request, res: Response, next: NextFunction) => {
+      const indexPath = path.join(webDistPath, 'index.html');
+      res.sendFile(indexPath, (err) => {
+        if (err) next();
+      });
+    });
 
     // REST API adapter mounts its own routes onto the app
     createRestAdapter(this.app);
