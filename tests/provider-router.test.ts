@@ -66,7 +66,7 @@ function openCircuit(router: ProviderRouter, providerId: string, threshold = 5):
 
 /** Advance cb.openedAt so the cooldown appears elapsed. */
 function advancePastCooldown(router: ProviderRouter, providerId: string): void {
-  const cb = router['_getCircuitBreaker'](providerId);
+  const cb = router._getCircuitBreaker(providerId);
   if (cb) {
     // Backdate openedAt so that (Date.now() - openedAt) >= cooldownMs
     cb.openedAt = Date.now() - 61_000;

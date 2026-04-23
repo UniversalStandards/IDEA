@@ -16,7 +16,7 @@ export interface AIProvider {
   capabilities: string[];
 }
 
-interface CircuitBreakerEntry {
+export interface CircuitBreakerEntry {
   state: CircuitBreakerState;
   consecutiveFailures: number;
   /** Unix timestamp (ms) when the circuit transitioned to OPEN. */
@@ -37,9 +37,7 @@ export interface ProviderRouterOptions {
 /** Attach an API key to a provider only when the env var is defined (required by exactOptionalPropertyTypes). */
 function withApiKey(provider: AIProvider, key: string | undefined): AIProvider {
   return key !== undefined ? { ...provider, apiKey: key } : provider;
-}
-
-const BUILTIN_PROVIDERS: AIProvider[] = [
+}const BUILTIN_PROVIDERS: AIProvider[] = [
   withApiKey(
     {
       id: 'openai',
@@ -137,6 +135,10 @@ export class ProviderRouter {
   /**
    * Start the background health-check task.
    * Safe to call multiple times — subsequent calls are no-ops if already running.
+   *
+   * The underlying `setInterval` timer is `unref()`-ed so that it does not
+   * prevent the Node.js process from exiting when no other async work remains.
+   * Call `stop()` during graceful shutdown to release the timer explicitly.
    */
   startHealthChecks(): void {
     if (this.healthCheckTimer) return;
