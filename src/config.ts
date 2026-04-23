@@ -90,6 +90,9 @@ const ConfigSchema = z.object({
   RATE_LIMIT_WINDOW_MS: intEnv(60_000, 1000),
   RATE_LIMIT_MAX_REQUESTS: intEnv(300, 1),
 
+  // Approval Gates
+  APPROVAL_WEBHOOK_URL: z.string().url().optional(),
+
   // Webhook / Events Adapter
   WEBHOOK_SECRET: z.string().optional(),
   EVENT_DEDUP_WINDOW_MS: intEnv(300_000, 0),

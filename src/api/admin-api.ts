@@ -11,6 +11,8 @@ import { createLogger } from '../observability/logger';
 import { getConfig } from '../config';
 import { runtimeManager } from '../core/runtime-manager';
 import { auditLog } from '../security/audit';
+import { approvalGate } from '../policy/approval-gates';
+import type { ApprovalDecision } from '../policy/approval-gates';
 
 const logger = createLogger('admin-api');
 
@@ -53,9 +55,10 @@ adminRouter.use(requireAuth);
 adminRouter.get('/capabilities', (req: Request, res: Response) => {
   try {
     // runtimeManager.getCapabilities() may not exist in all versions
+    const rm = runtimeManager as unknown as Record<string, unknown>;
     const capabilities =
-      typeof (runtimeManager as unknown as Record<string, unknown>).getCapabilities === 'function'
-        ? (runtimeManager as unknown as { getCapabilities: () => unknown[] }).getCapabilities()
+      typeof rm['getCapabilities'] === 'function'
+        ? (rm['getCapabilities'] as () => unknown[])()
         : [];
 
     auditLog.record('admin.capabilities.list', 'admin', 'runtime', 'success', undefined, {
@@ -193,5 +196,82 @@ adminRouter.get('/audit', (req: Request, res: Response) => {
   } catch (err) {
     logger.error('Failed to retrieve audit entries', { err });
     res.status(500).json({ error: 'Failed to retrieve audit entries' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// GET /admin/approvals
+// Lists all pending approval requests.
+// ─────────────────────────────────────────────────────────────────
+
+adminRouter.get('/approvals', (_req: Request, res: Response) => {
+  try {
+    const pending = approvalGate.pending();
+    res.json({ approvals: pending, count: pending.length });
+  } catch (err) {
+    logger.error('Failed to retrieve pending approvals', { err });
+    res.status(500).json({ error: 'Failed to retrieve pending approvals' });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+// POST /admin/approvals/:requestId/decision
+// Submit an approval or rejection decision for a pending request.
+// ─────────────────────────────────────────────────────────────────
+
+const decisionBodySchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  decidedBy: z.string().min(1).max(255),
+  reason: z.string().max(1000).optional(),
+});
+
+const requestIdParamSchema = z.string().uuid();
+
+adminRouter.post('/approvals/:requestId/decision', (req: Request, res: Response) => {
+  const paramParsed = requestIdParamSchema.safeParse(req.params['requestId']);
+  if (!paramParsed.success) {
+    res.status(400).json({ error: 'Invalid requestId — must be a UUID' });
+    return;
+  }
+
+  const bodyParsed = decisionBodySchema.safeParse(req.body);
+  if (!bodyParsed.success) {
+    res.status(400).json({ error: 'Invalid request body', details: bodyParsed.error.issues });
+    return;
+  }
+
+  const requestId = paramParsed.data;
+  const { decision, decidedBy, reason } = bodyParsed.data;
+
+  const approvalDecision: ApprovalDecision = {
+    requestId,
+    decision,
+    decidedBy,
+    decidedAt: new Date().toISOString(),
+    ...(reason !== undefined && { reason }),
+  };
+
+  try {
+    const updated = approvalGate.submitDecision(approvalDecision);
+    auditLog.record(
+      `admin.approval.${decision}`,
+      decidedBy,
+      requestId,
+      decision === 'approved' ? 'success' : 'failure',
+      undefined,
+      { reason },
+    );
+    res.json({ message: `Approval request ${decision}`, approval: updated });
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('not found')) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
+    if (err instanceof Error && err.message.includes('already resolved')) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    logger.error('Failed to submit approval decision', { err, requestId });
+    res.status(500).json({ error: 'Failed to submit approval decision' });
   }
 });
