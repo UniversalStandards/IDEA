@@ -1,12 +1,56 @@
 import { config } from '../config';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
+import { getRedis } from '../core/redis-client';
 import { GithubRegistry } from './github-registry';
 import { OfficialRegistry } from './official-registry';
 import { LocalScanner } from './local-scanner';
 import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
 
 const logger = createLogger('registry-manager');
+
+// ── Redis cache helpers ──────────────────────────────────────────────────────
+
+const REDIS_KEY_PREFIX = 'registry:';
+
+function getCacheTtl(): number {
+  try {
+    return config.CACHE_TTL;
+  } catch {
+    return 300;
+  }
+}
+
+async function redisCacheGet<T>(key: string): Promise<T | null> {
+  const redis = getRedis();
+  if (!redis) return null;
+  try {
+    const raw = await redis.get(`${REDIS_KEY_PREFIX}${key}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as T;
+  } catch (err) {
+    logger.warn('Redis cache get failed', {
+      key,
+      err: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
+async function redisCacheSet(key: string, value: unknown, ttlSeconds: number): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    await redis.set(`${REDIS_KEY_PREFIX}${key}`, JSON.stringify(value), 'EX', ttlSeconds);
+  } catch (err) {
+    logger.warn('Redis cache set failed', {
+      key,
+      err: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+// ── Sorting / deduplication helpers ─────────────────────────────────────────
 
 const SOURCE_TRUST_ORDER: Record<ToolMetadata['source'], number> = {
   official: 4,
@@ -80,6 +124,15 @@ export class RegistryManager {
   async search(options: RegistrySearchOptions): Promise<ToolMetadata[]> {
     const start = Date.now();
 
+    // ── Redis cache check ──────────────────────────────────────────────────
+    const cacheKey = `search:${JSON.stringify(options)}`;
+    const cached = await redisCacheGet<ToolMetadata[]>(cacheKey);
+    if (cached) {
+      logger.debug('Registry search cache hit (Redis)', { query: options.query });
+      metrics.increment('registry_search_cache_hits_total');
+      return cached;
+    }
+
     const available = await this.getAvailableRegistries();
 
     const resultsArrays = await Promise.allSettled(
@@ -117,16 +170,28 @@ export class RegistryManager {
       returned: limited.length,
     });
 
+    // ── Populate Redis cache ───────────────────────────────────────────────
+    await redisCacheSet(cacheKey, limited, getCacheTtl());
+
     return limited;
   }
 
   async getById(id: string): Promise<ToolMetadata | null> {
+    // ── Redis cache check ──────────────────────────────────────────────────
+    const cacheKey = `tool:${id}`;
+    const cached = await redisCacheGet<ToolMetadata>(cacheKey);
+    if (cached) {
+      logger.debug('Tool lookup cache hit (Redis)', { id });
+      return cached;
+    }
+
     const available = await this.getAvailableRegistries();
 
     const results = await Promise.allSettled(available.map((r) => r.getById(id)));
 
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value !== null) {
+        await redisCacheSet(cacheKey, result.value, getCacheTtl());
         return result.value;
       }
     }
@@ -135,6 +200,15 @@ export class RegistryManager {
   }
 
   async listAll(): Promise<ToolMetadata[]> {
+    // ── Redis cache check ──────────────────────────────────────────────────
+    const cacheKey = 'list:all';
+    const cached = await redisCacheGet<ToolMetadata[]>(cacheKey);
+    if (cached) {
+      logger.debug('Registry list-all cache hit (Redis)');
+      metrics.increment('registry_list_cache_hits_total');
+      return cached;
+    }
+
     const available = await this.getAvailableRegistries();
 
     const results = await Promise.allSettled(available.map((r) => r.list()));
@@ -153,7 +227,12 @@ export class RegistryManager {
       }
     }
 
-    return sortByTrustAndRelevance(deduplicate(all));
+    const sorted = sortByTrustAndRelevance(deduplicate(all));
+
+    // ── Populate Redis cache ───────────────────────────────────────────────
+    await redisCacheSet(cacheKey, sorted, getCacheTtl());
+
+    return sorted;
   }
 
   async discoverForCapability(capability: string): Promise<ToolMetadata[]> {

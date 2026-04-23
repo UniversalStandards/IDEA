@@ -2,8 +2,16 @@ import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
 import { config } from '../config';
+import { getRedis } from '../core/redis-client';
 
 const logger = createLogger('scheduler');
+
+// Redis keys for distributed queue depth (shared across all hub instances).
+// These keys represent the most-recently-observed state from any instance — a
+// last-writer-wins approach that is appropriate for observability counters where
+// exact precision is less important than cluster-wide visibility.
+const REDIS_QUEUE_DEPTH_KEY = 'scheduler:queue_depth';
+const REDIS_RUNNING_KEY = 'scheduler:running';
 
 export interface ScheduledTask {
   id: string;
@@ -44,8 +52,13 @@ export class Scheduler {
       };
 
       this.enqueue(task);
-      metrics.gauge('scheduler_queue_depth', this.queue.length);
-      logger.debug('Task scheduled', { taskId: task.id, priority, queueDepth: this.queue.length });
+      const queueDepth = this.queue.length;
+      metrics.gauge('scheduler_queue_depth', queueDepth);
+      logger.debug('Task scheduled', { taskId: task.id, priority, queueDepth });
+
+      // Propagate local queue depth to Redis for distributed observability.
+      // Fire-and-forget — a Redis failure must never block task scheduling.
+      this.syncQueueDepthToRedis(queueDepth);
 
       this.drain();
     });
@@ -70,6 +83,7 @@ export class Scheduler {
 
       this.running++;
       metrics.gauge('scheduler_running', this.running);
+      this.syncRunningToRedis(this.running);
 
       const start = Date.now();
       task
@@ -80,6 +94,7 @@ export class Scheduler {
           metrics.increment('scheduler_completed_total');
           metrics.histogram('scheduler_task_duration_ms', Date.now() - start);
           metrics.gauge('scheduler_running', this.running);
+          this.syncRunningToRedis(this.running);
           logger.debug('Task completed', { taskId: task.id, durationMs: Date.now() - start });
           task.resolve(result);
           this.drain();
@@ -89,6 +104,7 @@ export class Scheduler {
           this.running--;
           metrics.increment('scheduler_failed_total');
           metrics.gauge('scheduler_running', this.running);
+          this.syncRunningToRedis(this.running);
           logger.warn('Task failed', {
             taskId: task.id,
             err: err instanceof Error ? err.message : String(err),
@@ -97,6 +113,30 @@ export class Scheduler {
           this.drain();
         });
     }
+
+    // Keep distributed queue-depth in sync as tasks are drained
+    this.syncQueueDepthToRedis(this.queue.length);
+  }
+
+  /**
+   * Write this instance's queue depth into Redis so external observers
+   * (dashboards, other hub nodes) can see aggregate load.
+   * Uses SETEX with a short TTL so stale data self-expires.
+   */
+  private syncQueueDepthToRedis(depth: number): void {
+    const redis = getRedis();
+    if (!redis) return;
+    redis.setex(REDIS_QUEUE_DEPTH_KEY, 60, String(depth)).catch((err: Error) => {
+      logger.debug('Redis queue depth sync failed', { err: err.message });
+    });
+  }
+
+  private syncRunningToRedis(count: number): void {
+    const redis = getRedis();
+    if (!redis) return;
+    redis.setex(REDIS_RUNNING_KEY, 60, String(count)).catch((err: Error) => {
+      logger.debug('Redis running count sync failed', { err: err.message });
+    });
   }
 
   getStats(): SchedulerStats {
@@ -106,6 +146,38 @@ export class Scheduler {
       completed: this.completed,
       failed: this.failed,
     };
+  }
+
+  /**
+   * Returns scheduler stats enriched with distributed counts from Redis.
+   * Falls back to local stats when Redis is unavailable.
+   */
+  async getDistributedStats(): Promise<SchedulerStats & { distributed: boolean }> {
+    const redis = getRedis();
+    if (!redis) {
+      return { ...this.getStats(), distributed: false };
+    }
+
+    try {
+      const [queuedRaw, runningRaw] = await redis.mget(
+        REDIS_QUEUE_DEPTH_KEY,
+        REDIS_RUNNING_KEY,
+      );
+      const parsedQueued = queuedRaw != null ? parseInt(queuedRaw, 10) : NaN;
+      const parsedRunning = runningRaw != null ? parseInt(runningRaw, 10) : NaN;
+      return {
+        queued: !isNaN(parsedQueued) ? parsedQueued : this.queue.length,
+        running: !isNaN(parsedRunning) ? parsedRunning : this.running,
+        completed: this.completed,
+        failed: this.failed,
+        distributed: true,
+      };
+    } catch (err) {
+      logger.warn('Redis distributed stats read failed', {
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return { ...this.getStats(), distributed: false };
+    }
   }
 }
 
