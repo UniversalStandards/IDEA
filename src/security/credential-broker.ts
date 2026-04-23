@@ -1,161 +1,156 @@
-import { randomUUID } from 'crypto';
-import { secretStore } from './secret-store';
-import { auditLogger } from './audit';
+/**
+ * src/security/credential-broker.ts
+ *
+ * Scoped credential broker — stores, retrieves, revokes, and rotates secrets
+ * on a per-tool basis.  Each credential is:
+ *   - Encrypted in memory with AES-256-GCM (via crypto.encrypt)
+ *   - Bound to a specific toolId — cross-tool access is rejected
+ *   - Audited: every operation is recorded via auditLog.record()
+ *   - Never logged in plaintext (logger fields never contain the raw value)
+ */
+
+import { encrypt, decrypt } from './crypto';
+import { auditLog } from './audit';
 import { createLogger } from '../observability/logger';
+import { getConfig } from '../config';
 
 const logger = createLogger('credential-broker');
 
-export type CredentialType = 'api_key' | 'oauth_token' | 'basic' | 'bearer';
+// Internal storage key: cred:{toolId}:{key}
+const STORE_PREFIX = 'cred:';
 
-export interface Credential {
-  id: string;
-  name: string;
-  type: CredentialType;
-  value: string;
-  scopes: string[];
-  expiresAt?: string;
-  metadata?: Record<string, unknown>;
+function storeKey(toolId: string, key: string): string {
+  return `${STORE_PREFIX}${toolId}:${key}`;
 }
 
-type StoredCredential = Omit<Credential, 'value'>;
-
-const CRED_PREFIX = 'cred:';
-const META_PREFIX = 'cred-meta:';
+function getEncryptionKey(): string {
+  try {
+    return getConfig().ENCRYPTION_KEY;
+  } catch {
+    return process.env['ENCRYPTION_KEY'] ?? 'fallback-dev-key-change-me-in-prod!!';
+  }
+}
 
 export class CredentialBroker {
-  private readonly injections = new Map<string, Set<string>>();
+  // In-memory map: storageKey → encrypted ciphertext
+  private readonly vault = new Map<string, string>();
 
-  register(name: string, cred: Omit<Credential, 'id'>): Credential {
-    const id = randomUUID();
-    const full: Credential = { ...cred, id, name };
-    const meta: StoredCredential = {
-      id: full.id,
-      name: full.name,
-      type: full.type,
-      scopes: full.scopes,
-      expiresAt: full.expiresAt,
-      metadata: full.metadata,
-    };
+  /**
+   * Encrypt and store a credential scoped to `toolId`.
+   * Overwrites any previously stored value for the same toolId/key pair.
+   */
+  store(toolId: string, key: string, value: string): void {
+    if (!toolId || !key) throw new Error('toolId and key must not be empty');
 
-    secretStore.set(`${CRED_PREFIX}${name}`, full.value);
-    secretStore.set(`${META_PREFIX}${name}`, JSON.stringify(meta));
+    const encKey = getEncryptionKey();
+    const ciphertext = encrypt(value, encKey);
+    this.vault.set(storeKey(toolId, key), ciphertext);
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.register',
-      resource: name,
-      outcome: 'success',
-      metadata: { id, type: cred.type },
-    });
-
-    logger.info('Credential registered', { name, type: cred.type, id });
-    return full;
+    logger.debug('Credential stored', { toolId, key });
+    auditLog.record('credential.store', toolId, key, 'success');
   }
 
-  get(name: string): Credential | undefined {
-    const raw = secretStore.get(`${CRED_PREFIX}${name}`);
-    const metaRaw = secretStore.get(`${META_PREFIX}${name}`);
-    if (!raw || !metaRaw) return undefined;
+  /**
+   * Decrypt and return a credential.
+   * Throws if the credential does not exist or belongs to a different toolId.
+   */
+  retrieve(toolId: string, key: string): string {
+    if (!toolId || !key) throw new Error('toolId and key must not be empty');
 
-    const meta = JSON.parse(metaRaw) as StoredCredential;
+    const sk = storeKey(toolId, key);
+    const ciphertext = this.vault.get(sk);
 
-    if (meta.expiresAt && new Date(meta.expiresAt) < new Date()) {
-      logger.warn('Credential expired', { name });
-      auditLogger.log({
-        actor: 'system',
-        action: 'credential.access',
-        resource: name,
-        outcome: 'failure',
-        metadata: { reason: 'expired' },
-      });
-      return undefined;
+    if (ciphertext === undefined) {
+      auditLog.record('credential.retrieve', toolId, key, 'failure');
+      throw new Error(`Credential not found for toolId="${toolId}" key="${key}"`);
     }
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.access',
-      resource: name,
-      outcome: 'success',
-    });
+    const encKey = getEncryptionKey();
+    const plaintext = decrypt(ciphertext, encKey);
 
-    return { ...meta, value: raw };
+    auditLog.record('credential.retrieve', toolId, key, 'success');
+    logger.debug('Credential retrieved', { toolId, key });
+    return plaintext;
   }
 
-  inject(toolId: string, credName: string): Credential {
-    const cred = this.get(credName);
-    if (!cred) throw new Error(`Credential not found or expired: ${credName}`);
+  /**
+   * Remove one credential (when `key` is provided) or all credentials for a
+   * tool (when `key` is omitted).
+   * Throws if the targeted credential(s) do not exist.
+   */
+  revoke(toolId: string, key?: string): void {
+    if (!toolId) throw new Error('toolId must not be empty');
 
-    if (!this.injections.has(toolId)) {
-      this.injections.set(toolId, new Set());
+    if (key !== undefined) {
+      const sk = storeKey(toolId, key);
+      if (!this.vault.has(sk)) {
+        auditLog.record('credential.revoke', toolId, key, 'failure');
+        throw new Error(`Credential not found for toolId="${toolId}" key="${key}"`);
+      }
+      this.vault.delete(sk);
+      logger.info('Credential revoked', { toolId, key });
+      auditLog.record('credential.revoke', toolId, key, 'success');
+    } else {
+      // Revoke all credentials for this toolId
+      const prefix = storeKey(toolId, '');
+      const keysToDelete: string[] = [];
+      for (const sk of this.vault.keys()) {
+        if (sk.startsWith(prefix)) keysToDelete.push(sk);
+      }
+      if (keysToDelete.length === 0) {
+        auditLog.record('credential.revoke-all', toolId, toolId, 'failure');
+        throw new Error(`No credentials found for toolId="${toolId}"`);
+      }
+      for (const sk of keysToDelete) {
+        this.vault.delete(sk);
+      }
+      logger.info('All credentials revoked for tool', { toolId, count: keysToDelete.length });
+      auditLog.record('credential.revoke-all', toolId, toolId, 'success');
     }
-    this.injections.get(toolId)!.add(credName);
-
-    auditLogger.log({
-      actor: toolId,
-      action: 'credential.inject',
-      resource: credName,
-      outcome: 'success',
-    });
-
-    logger.debug('Credential injected', { toolId, credName });
-    return cred;
   }
 
-  revoke(name: string): boolean {
-    const existed =
-      secretStore.delete(`${CRED_PREFIX}${name}`) ||
-      secretStore.delete(`${META_PREFIX}${name}`);
+  /**
+   * Atomically replace a credential value.
+   * The old value is wiped before the new value is written.
+   * Throws if the credential does not exist.
+   */
+  rotate(toolId: string, key: string, newValue: string): void {
+    if (!toolId || !key) throw new Error('toolId and key must not be empty');
 
-    for (const [toolId, creds] of this.injections.entries()) {
-      creds.delete(name);
-      if (creds.size === 0) this.injections.delete(toolId);
+    const sk = storeKey(toolId, key);
+    if (!this.vault.has(sk)) {
+      auditLog.record('credential.rotate', toolId, key, 'failure');
+      throw new Error(`Credential not found for toolId="${toolId}" key="${key}"`);
     }
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.revoke',
-      resource: name,
-      outcome: existed ? 'success' : 'failure',
-    });
+    // Wipe old value first, then write new encrypted value
+    this.vault.delete(sk);
+    const encKey = getEncryptionKey();
+    const ciphertext = encrypt(newValue, encKey);
+    this.vault.set(sk, ciphertext);
 
-    logger.info('Credential revoked', { name });
-    return existed;
+    logger.info('Credential rotated', { toolId, key });
+    auditLog.record('credential.rotate', toolId, key, 'success');
   }
 
-  rotate(name: string, newValue: string): boolean {
-    if (!secretStore.has(`${CRED_PREFIX}${name}`)) return false;
-    secretStore.set(`${CRED_PREFIX}${name}`, newValue);
-
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.rotate',
-      resource: name,
-      outcome: 'success',
-    });
-
-    logger.info('Credential rotated', { name });
-    return true;
-  }
-
-  listAll(): StoredCredential[] {
-    const results: StoredCredential[] = [];
-    for (const key of secretStore.list()) {
-      if (key.startsWith(META_PREFIX)) {
-        const raw = secretStore.get(key);
-        if (raw) {
-          try {
-            results.push(JSON.parse(raw) as StoredCredential);
-          } catch {
-            // ignore malformed entries
-          }
-        }
+  /**
+   * List credential keys (not values) for a given toolId.
+   * Useful for introspection and administrative tools.
+   */
+  listKeys(toolId: string): string[] {
+    const prefix = storeKey(toolId, '');
+    const results: string[] = [];
+    for (const sk of this.vault.keys()) {
+      if (sk.startsWith(prefix)) {
+        results.push(sk.slice(prefix.length));
       }
     }
     return results;
   }
 
-  getInjectedCredentials(toolId: string): string[] {
-    return Array.from(this.injections.get(toolId) ?? []);
+  /** Remove all credentials from memory (primarily for tests / shutdown). */
+  clear(): void {
+    this.vault.clear();
   }
 }
 
