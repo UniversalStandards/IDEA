@@ -19,6 +19,8 @@ export interface ToolMetadata {
   riskLevel?: 'low' | 'medium' | 'high';
   dependencies?: string[];
   metadata?: Record<string, unknown>;
+  /** Registry names that provided this tool — populated after cross-registry deduplication. */
+  sources?: string[];
 }
 
 export interface RegistrySearchOptions {
