@@ -209,10 +209,20 @@ export class WorkflowEngine extends EventEmitter {
       run.stepResults[step.id] = stepResult;
 
       if (stepResult.success) {
-        this.emit('workflow:step:complete', { runId: run.runId, workflowId: run.workflowId, stepId: step.id, output: stepResult.output });
+        this.emit('workflow:step:complete', {
+          runId: run.runId,
+          workflowId: run.workflowId,
+          stepId: step.id,
+          output: stepResult.output,
+        });
         currentStepId = step.onSuccess ?? this.nextStepId(wf, step.id);
       } else {
-        this.emit('workflow:step:failed', { runId: run.runId, workflowId: run.workflowId, stepId: step.id, error: stepResult.error });
+        this.emit('workflow:step:failed', {
+          runId: run.runId,
+          workflowId: run.workflowId,
+          stepId: step.id,
+          error: stepResult.error,
+        });
         if (step.onFailure) {
           currentStepId = step.onFailure;
         } else {
@@ -262,7 +272,7 @@ export class WorkflowEngine extends EventEmitter {
 
         if (attempt <= maxRetries) {
           const delay = Math.min(
-            initialDelayMs * Math.pow(backoffMultiplier, attempt - 1),
+            initialDelayMs * (backoffMultiplier ** (attempt - 1)),
             maxDelayMs,
           );
           logger.debug('Retrying workflow step after delay', { stepId: step.id, delayMs: delay, attempt });
