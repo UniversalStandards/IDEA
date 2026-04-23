@@ -43,8 +43,8 @@ function buildHealthResponse(ready: boolean): HealthStatus {
 }
 
 /** GET /health — combined probe (backward compatible) */
-healthRouter.get('/', (_req: Request, res: Response) => {
-  const requestId = randomUUID();
+healthRouter.get('/', (req: Request, res: Response) => {
+  const requestId = (res.getHeader('X-Request-ID') as string | undefined) ?? randomUUID();
   res.setHeader('X-Request-ID', requestId);
   const ready = runtimeManager.isInitialized();
   const body = buildHealthResponse(ready);
@@ -54,14 +54,11 @@ healthRouter.get('/', (_req: Request, res: Response) => {
 
 /** GET /health/live — liveness probe. Always 200 if the process is running. */
 healthRouter.get('/live', (_req: Request, res: Response) => {
-  res.setHeader('X-Request-ID', randomUUID());
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
 /** GET /health/ready — readiness probe. 503 until runtime is initialized. */
 healthRouter.get('/ready', (_req: Request, res: Response) => {
-  const requestId = randomUUID();
-  res.setHeader('X-Request-ID', requestId);
   const ready = runtimeManager.isInitialized();
   if (!ready) {
     res.status(503).json({

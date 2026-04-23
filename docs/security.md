@@ -74,10 +74,60 @@ Entries are appended as JSONL to `runtime/audit.jsonl`. Rotation and archival ar
 
 ## 5. Network Boundaries
 
-- **Rate limiting**: Configurable via `RATE_LIMIT_WINDOW_MS` and `RATE_LIMIT_MAX_REQUESTS` (default: 300 req/60s).
-- **CORS**: Strict allowlist via `CORS_ORIGIN`. Wildcard `*` is only appropriate for development.
-- **Egress control**: All outbound requests from the hub (registry fetches, provider calls) should be proxied through an egress gateway in production to enforce network policies.
-- **No inbound secrets**: The Admin API rejects all requests without a valid JWT Bearer token.
+### Rate Limiting
+
+Configurable via `RATE_LIMIT_WINDOW_MS` and `RATE_LIMIT_MAX_REQUESTS` (default: 300 req/60s). Uses `express-rate-limit` with standard RateLimit-* headers so clients can backoff gracefully.
+
+A stress-test script is provided at `scripts/rate-limit-test.ts`:
+
+```bash
+# Start the server, then in a second terminal:
+BASE_URL=http://localhost:3000 REQUESTS=320 npx tsx scripts/rate-limit-test.ts
+```
+
+The script fires 320 requests against `/health/live` and asserts that 429 responses appear after the configured limit.
+
+### CORS
+
+Strict origin allowlist via `CORS_ORIGIN`. When a non-wildcard value is set:
+- `credentials: true` is automatically enabled so `Authorization` headers and cookies are forwarded.
+- `Access-Control-Allow-Origin` echoes only the matched origin — never a wildcard.
+- `X-Request-ID` is listed in `exposedHeaders` so browsers can read it for client-side tracing.
+
+See [§6 of `docs/deployment.md`](deployment.md#6-security-configuration) for the exact production values required.
+
+### HTTP Security Headers
+
+Helmet is configured with **explicit directives** to make every header intentional and auditable:
+
+| Header | Directive | Notes |
+|---|---|---|
+| `Content-Security-Policy` | `default-src 'self'; script-src 'none'; …` | Restricts all resource loading; disables inline scripts |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` | HTTPS-only for 1 year + preload eligibility |
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME sniffing attacks |
+| `X-Frame-Options` | `DENY` | Blocks iframe embedding / clickjacking |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer exposure |
+| `X-XSS-Protection` | `0` | Disables legacy browser XSS filter; defers to CSP |
+| `X-Powered-By` | *(removed)* | Hidden via `hidePoweredBy` |
+
+To audit the live headers, run:
+```bash
+curl -I http://localhost:3000/health/live
+```
+
+Expected output includes all of the headers listed above. For a hosted deployment, tools such as [securityheaders.com](https://securityheaders.com) can provide a letter-grade score.
+
+### X-Request-ID
+
+A global middleware (before all route handlers) generates or propagates an `X-Request-ID` header on every response. If the client sends `X-Request-ID: <value>`, that value is echoed back; otherwise a fresh UUID v4 is generated. The header is also attached to the Express request object for downstream logging.
+
+### Egress Control
+
+All outbound requests from the hub (registry fetches, provider calls) should be proxied through an egress gateway in production to enforce network policies.
+
+### No Inbound Secrets
+
+The Admin API rejects all requests without a valid JWT Bearer token.
 
 ---
 

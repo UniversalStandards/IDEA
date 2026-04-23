@@ -10,7 +10,7 @@
 | `MCP_TRANSPORT` | enum | `http` | No | `http`, `stdio`, `sse` |
 | `JWT_SECRET` | string | insecure default | **Yes (prod)** | Min 32 chars. Signs admin API tokens. |
 | `ENCRYPTION_KEY` | string | insecure default | **Yes (prod)** | Min 32 chars. AES-256-GCM key for secrets. |
-| `CORS_ORIGIN` | string | `*` | No | `*` or comma-separated URL list. |
+| `CORS_ORIGIN` | string | `*` | No | `*` or comma-separated URL list. **In production, set to your exact frontend origin(s) — never use `*`.** |
 | `RATE_LIMIT_WINDOW_MS` | int | `60000` | No | Rate limit window in ms. |
 | `RATE_LIMIT_MAX_REQUESTS` | int | `300` | No | Max requests per window. |
 | `ENABLE_GITHUB_REGISTRY` | bool | `true` | No | Enable GitHub registry connector. |
@@ -240,7 +240,53 @@ spec:
 
 ---
 
-## 6. Air-Gapped / Offline Mode
+## 6. Security Configuration
+
+### CORS in Production
+
+**Never use `CORS_ORIGIN=*` in production.** Wildcard CORS disables the same-origin protection and
+allows any website to make credentialed requests to the Admin API.
+
+Set `CORS_ORIGIN` to the exact origin(s) of your frontend application:
+
+```bash
+# Single origin
+CORS_ORIGIN=https://dashboard.example.com
+
+# Multiple origins (comma-separated, no spaces)
+CORS_ORIGIN=https://dashboard.example.com,https://admin.example.com
+```
+
+When a non-wildcard origin is configured:
+- The `credentials: true` CORS option is automatically enabled, allowing cookies / `Authorization` headers.
+- Only the listed origins receive `Access-Control-Allow-Origin` in responses.
+- Requests from unlisted origins are rejected with a CORS error before reaching any route handler.
+
+### HTTP Security Headers
+
+The server uses [Helmet](https://helmetjs.github.io/) with **explicit** directives (not defaults):
+
+| Header | Value | Purpose |
+|---|---|---|
+| `Content-Security-Policy` | `default-src 'self'; script-src 'none'; …` | Restricts resource loading to same origin; no inline scripts |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` | Enforces HTTPS for 1 year, including sub-domains |
+| `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing |
+| `X-Frame-Options` | `DENY` | Blocks clickjacking via iframes |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | Limits referrer leakage on cross-origin navigation |
+| `X-XSS-Protection` | `0` | Disables legacy XSS auditor; defer to CSP |
+| `X-Request-ID` | `<uuid>` | Injected on every response for log correlation |
+
+### Request Body Size Limits
+
+| Route prefix | Limit | Rationale |
+|---|---|---|
+| `/admin/*` | **1 MB** | Admin requests are small (config, IDs, queries). A tight limit reduces DoS surface. |
+| `/api/v1/*` (REST adapter) | **10 MB** | Tool payloads and workflow inputs may be larger. |
+| All other routes | **10 MB** | Default. |
+
+---
+
+## 7. Air-Gapped / Offline Mode
 
 To run without external registry access:
 
