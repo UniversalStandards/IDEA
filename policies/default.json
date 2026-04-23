@@ -1,0 +1,76 @@
+{
+  "$schema": "../src/policy/policy-schema.json",
+  "version": "1.0.0",
+  "description": "Default policy pack — shipped with the repository. Mirrors the built-in DEFAULT_POLICIES so that the file-based loader (tracked in issue #8) will produce identical behaviour once implemented.",
+  "policies": [
+    {
+      "id": "default-deny-unknown",
+      "name": "Deny Unknown Tools",
+      "priority": 100,
+      "enabled": true,
+      "rules": [
+        {
+          "condition": {
+            "field": "toolId",
+            "operator": "matches",
+            "value": "^$|^unknown$"
+          },
+          "action": "deny",
+          "reason": "Unknown or unidentified tools are not permitted"
+        }
+      ]
+    },
+    {
+      "id": "default-high-risk-approval",
+      "name": "Require Approval for High-Risk Actions",
+      "priority": 90,
+      "enabled": true,
+      "rules": [
+        {
+          "condition": {
+            "field": "action",
+            "operator": "in",
+            "value": [
+              "install",
+              "uninstall",
+              "execute_shell",
+              "write_file",
+              "delete_file",
+              "network_request",
+              "modify_config",
+              "elevate_privilege"
+            ]
+          },
+          "action": "require_approval",
+          "reason": "High-risk action requires explicit human approval"
+        }
+      ]
+    },
+    {
+      "id": "default-allow-standard",
+      "name": "Allow Standard Tool Execution",
+      "priority": 10,
+      "enabled": true,
+      "rules": [
+        {
+          "condition": {
+            "field": "action",
+            "operator": "not_in",
+            "value": [
+              "install",
+              "uninstall",
+              "execute_shell",
+              "write_file",
+              "delete_file",
+              "network_request",
+              "modify_config",
+              "elevate_privilege"
+            ]
+          },
+          "action": "allow",
+          "reason": "Standard tool execution is permitted"
+        }
+      ]
+    }
+  ]
+}
