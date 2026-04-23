@@ -83,3 +83,9 @@ temp/
 
 # Docker
 .docker/
+
+# Website build artifacts
+website/.next/
+website/node_modules/
+website/out/
+
