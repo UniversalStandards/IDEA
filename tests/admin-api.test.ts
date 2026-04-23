@@ -121,6 +121,13 @@ describe('Admin API — Authentication Middleware', () => {
 });
 
 describe('Admin API — Route Logic', () => {
+  /** Extract registered route paths from the adminRouter stack. */
+  function getRegisteredRoutePaths(): string[] {
+    return (adminRouter.stack as Array<{ route?: { path: string } }>)
+      .filter((layer) => Boolean(layer.route))
+      .map((layer) => layer.route!.path);
+  }
+
   it('adminRouter is an Express router function', () => {
     expect(typeof adminRouter).toBe('function');
     expect(adminRouter.stack).toBeDefined();
@@ -133,31 +140,19 @@ describe('Admin API — Route Logic', () => {
   });
 
   it('registers GET /dashboard route', () => {
-    const routePaths: string[] = adminRouter.stack
-      .filter((layer) => layer.route)
-      .map((layer) => (layer.route as { path: string }).path as string);
-    expect(routePaths).toContain('/dashboard');
+    expect(getRegisteredRoutePaths()).toContain('/dashboard');
   });
 
   it('registers GET /metrics/stream route', () => {
-    const routePaths: string[] = adminRouter.stack
-      .filter((layer) => layer.route)
-      .map((layer) => (layer.route as { path: string }).path as string);
-    expect(routePaths).toContain('/metrics/stream');
+    expect(getRegisteredRoutePaths()).toContain('/metrics/stream');
   });
 
   it('registers GET /logs/stream route', () => {
-    const routePaths: string[] = adminRouter.stack
-      .filter((layer) => layer.route)
-      .map((layer) => (layer.route as { path: string }).path as string);
-    expect(routePaths).toContain('/logs/stream');
+    expect(getRegisteredRoutePaths()).toContain('/logs/stream');
   });
 
   it('registers GET /events/stream route', () => {
-    const routePaths: string[] = adminRouter.stack
-      .filter((layer) => layer.route)
-      .map((layer) => (layer.route as { path: string }).path as string);
-    expect(routePaths).toContain('/events/stream');
+    expect(getRegisteredRoutePaths()).toContain('/events/stream');
   });
 });
 

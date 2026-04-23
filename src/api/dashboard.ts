@@ -555,27 +555,49 @@ export function buildDashboardHtml(baseUrl: string): string {
       return;
     }
     $('provider-count').textContent = providers.length + ' providers';
-    list.innerHTML = providers.map(p => {
+    // Build provider rows using DOM APIs to avoid XSS from provider IDs / names
+    list.innerHTML = '';
+    providers.forEach(function(p) {
       const cls   = p.healthy === true ? 'green' : p.healthy === false ? 'red' : 'gray';
       const label = p.healthy === true ? 'Healthy' : p.healthy === false ? 'Unhealthy' : 'Unknown';
-      return \`<div class="provider-row">
-        <div class="health-dot \${cls}"></div>
-        <div class="provider-name">\${escHtml(p.name || p.id)}</div>
-        <div class="provider-meta">\${escHtml(p.baseUrl || '')} &bull; \${label}</div>
-        <div class="provider-actions">
-          <button class="secondary" onclick="checkProvider('\${escHtml(p.id)}', this)">Check</button>
-        </div>
-      </div>\`;
-    }).join('');
-  }
 
-  window.checkProvider = function(id, btn) {
-    btn.disabled = true; btn.textContent = '…';
-    fetch(BASE_URL + '/status/providers')
-      .then(r => r.json())
-      .then(data => { renderProviders(data.providers || []); })
-      .catch(() => { btn.disabled = false; btn.textContent = 'Check'; });
-  };
+      const row = document.createElement('div');
+      row.className = 'provider-row';
+
+      const dot = document.createElement('div');
+      dot.className = 'health-dot ' + cls;
+
+      const name = document.createElement('div');
+      name.className = 'provider-name';
+      name.textContent = p.name || p.id || '';
+
+      const meta = document.createElement('div');
+      meta.className = 'provider-meta';
+      meta.textContent = (p.baseUrl || '') + ' \u2022 ' + label;
+
+      const actions = document.createElement('div');
+      actions.className = 'provider-actions';
+
+      const btn = document.createElement('button');
+      btn.className = 'secondary';
+      btn.textContent = 'Check';
+      // Use closure over p.id to avoid any injection
+      btn.addEventListener('click', function() {
+        btn.disabled = true; btn.textContent = '…';
+        fetch(BASE_URL + '/status/providers')
+          .then(function(r) { return r.json(); })
+          .then(function(data) { renderProviders(data.providers || []); })
+          .catch(function() { btn.disabled = false; btn.textContent = 'Check'; });
+      });
+
+      actions.appendChild(btn);
+      row.appendChild(dot);
+      row.appendChild(name);
+      row.appendChild(meta);
+      row.appendChild(actions);
+      list.appendChild(row);
+    });
+  }
 
   // Refresh providers every 30s
   setInterval(loadProviders, 30_000);

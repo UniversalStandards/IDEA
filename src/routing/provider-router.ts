@@ -151,6 +151,23 @@ export class ProviderRouter {
   getProvider(id: string): AIProvider | undefined {
     return this.providers.get(id);
   }
+
+  /**
+   * Returns the cached health snapshot for every registered provider.
+   * Used by the monitoring dashboard and metrics stream without exposing
+   * the private `healthCache` map.
+   */
+  getProviderHealthSnapshot(): Array<{ id: string; name: string; healthy: boolean | null; checkedAt: string | null }> {
+    return Array.from(this.providers.values()).map((p) => {
+      const health = this.healthCache.get(p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        healthy: health ? health.healthy : null,
+        checkedAt: health ? new Date(health.checkedAt).toISOString() : null,
+      };
+    });
+  }
 }
 
 export const providerRouter = new ProviderRouter();

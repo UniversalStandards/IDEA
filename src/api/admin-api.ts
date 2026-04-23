@@ -126,17 +126,7 @@ adminRouter.get('/metrics/stream', (req: Request, res: Response) => {
     try {
       const snapshot = metrics.getSnapshot();
       const mem = process.memoryUsage();
-      const providers = providerRouter.listProviders().map((p) => {
-        const cached = (providerRouter as unknown as { healthCache?: Map<string, { healthy: boolean; checkedAt: number }> }).healthCache;
-        const health = cached?.get(p.id);
-        return {
-          id: p.id,
-          name: p.name,
-          healthy: health ? health.healthy : null,
-          checkedAt: health ? new Date(health.checkedAt).toISOString() : null,
-        };
-      });
-
+      const providers = providerRouter.getProviderHealthSnapshot();
       const payload = { ...snapshot, memory: mem, providers };
       res.write(`data: ${JSON.stringify(payload)}\n\n`);
     } catch (err) {
