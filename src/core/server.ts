@@ -15,6 +15,7 @@ import { type Config } from '../config';
 import { healthRouter } from '../api/health';
 import { statusRouter } from '../api/status';
 import { adminRouter } from '../api/admin-api';
+import { openapiRouter } from '../api/openapi';
 import { createRestAdapter } from '../adapters/rest/index';
 import { MCPAdapter } from '../adapters/mcp/index';
 import { runtimeManager } from './runtime-manager';
@@ -77,6 +78,7 @@ export class Server {
     this.app.use('/health', healthRouter);
     this.app.use('/status', statusRouter);
     this.app.use('/admin', adminRouter);
+    this.app.use('/', openapiRouter);
 
     // REST API adapter mounts its own routes onto the app
     createRestAdapter(this.app);

@@ -2,6 +2,42 @@
 
 All routes are served by the Express HTTP server. The server starts on the port defined by `PORT` (default: `3000`).
 
+> **Interactive docs**: Visit `GET /docs` in development to browse this API in Swagger UI.
+> The machine-readable spec is always available at `GET /openapi.json`.
+
+---
+
+## OpenAPI Specification
+
+### `GET /openapi.json`
+Returns the OpenAPI 3.1 specification document for this API as JSON.
+
+- **Authentication**: none required
+- **CORS**: `Access-Control-Allow-Origin: *` (always enabled on this endpoint so external tools can fetch it)
+- **Cache-Control**: `public, max-age=3600`
+
+```bash
+curl http://localhost:3000/openapi.json | jq .info
+```
+
+The spec is generated at runtime from the Zod schemas defined in `src/api/`. The `servers[0].url`
+field is populated from the incoming request's `Host` header and protocol.
+
+---
+
+### `GET /docs`
+Interactive API documentation.
+
+| Environment | Behaviour |
+|-------------|-----------|
+| `development` | Serves embedded Swagger UI (HTML + JS) |
+| `production` | `301` redirect to `/openapi.json` |
+
+```bash
+# Open in browser (development only)
+open http://localhost:3000/docs
+```
+
 ---
 
 ## Health Endpoints
