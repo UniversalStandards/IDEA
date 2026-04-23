@@ -19,6 +19,7 @@ import { createRestAdapter } from '../adapters/rest/index';
 import { MCPAdapter } from '../adapters/mcp/index';
 import { runtimeManager } from './runtime-manager';
 import { lifecycle } from './lifecycle';
+import { auditLog } from '../security/audit';
 
 const logger = createLogger('server');
 
@@ -144,6 +145,9 @@ export class Server {
 
     // ── Lifecycle registration ───────────────────────────────────────
     lifecycle.register('runtime-manager', () => runtimeManager.shutdown());
+    // audit-flush registered after runtime-manager so it runs first in reverse
+    // shutdown order — captures any entries written during shutdown sequence
+    lifecycle.register('audit-flush', () => auditLog.flush());
 
     logger.info('Server startup complete', {
       port: this.cfg.PORT,
