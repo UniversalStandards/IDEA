@@ -43,7 +43,8 @@ export class RuntimeManager {
       // Policy engine is already initialized via its module
       logger.info('Policy engine ready', { policies: policyEngine.listPolicies().length });
 
-      // Provider router is pre-configured
+      // Start provider router background health polling
+      providerRouter.initialize();
       logger.info('Provider router ready', { providers: providerRouter.listProviders().length });
 
       // Workflow engine is event-driven, no startup needed
@@ -81,6 +82,9 @@ export class RuntimeManager {
         }
       }
     }
+
+    // Stop provider router health polling
+    providerRouter.shutdown();
 
     metrics.increment('runtime_shutdowns_total');
     this.initialized = false;
