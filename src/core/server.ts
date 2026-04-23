@@ -82,8 +82,13 @@ export class Server {
     // ── Serve Admin UI static files ──────────────────────────────────────
     const webDistPath = path.join(__dirname, '../../web/dist');
     this.app.use('/admin-ui', express.static(webDistPath));
-    this.app.get('/admin-ui/*', (_req: Request, res: Response) => {
-      res.sendFile(path.join(webDistPath, 'index.html'));
+    // SPA fallback: serve index.html for any /admin-ui/* path not matched by a static file
+    // Express 5 uses path-to-regexp v8 which requires named wildcards — use app.use instead
+    this.app.use('/admin-ui', (_req: Request, res: Response, next: NextFunction) => {
+      const indexPath = path.join(webDistPath, 'index.html');
+      res.sendFile(indexPath, (err) => {
+        if (err) next();
+      });
     });
 
     // REST API adapter mounts its own routes onto the app
