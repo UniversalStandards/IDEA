@@ -92,7 +92,7 @@ export class WorkflowEngine extends EventEmitter {
       startedAt,
       success: false,
       stepResults: {},
-      input,
+      ...(input !== undefined ? { input } : {}),
     };
 
     try {
@@ -120,7 +120,7 @@ export class WorkflowEngine extends EventEmitter {
     return run;
   }
 
-  emit(event: string, data?: unknown): boolean {
+  override emit(event: string, data?: unknown): boolean {
     logger.debug('Workflow engine event', { event });
     return super.emit(event, data);
   }

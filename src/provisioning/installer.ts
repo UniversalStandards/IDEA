@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { auditLogger } from '../security/audit';
+import { auditLog as auditLogger } from '../security/audit';
 import { config } from '../config';
 import { policyEngine } from '../policy/policy-engine';
 import { trustEvaluator } from '../policy/trust-evaluator';
@@ -112,10 +112,10 @@ export class Installer extends EventEmitter {
         name: tool.name,
         version: tool.version,
         source: mapToolSourceForTrust(tool.source),
-        signatureValid: tool.verified,
-        downloadCount: tool.downloadCount,
-        author: tool.author,
-        metadata: tool.metadata,
+        ...(tool.verified !== undefined ? { signatureValid: tool.verified } : {}),
+        ...(tool.downloadCount !== undefined ? { downloadCount: tool.downloadCount } : {}),
+        ...(tool.author !== undefined ? { author: tool.author } : {}),
+        ...(tool.metadata !== undefined ? { metadata: tool.metadata } : {}),
       };
 
       const trustScore = trustEvaluator.evaluate(trustInput);
@@ -182,13 +182,14 @@ export class Installer extends EventEmitter {
       metrics.increment('tools_installed_total', { source: tool.source });
       metrics.histogram('tool_install_duration_ms', Date.now() - start);
 
-      auditLogger.log({
-        actor: 'system:installer',
-        action: 'tool.install',
-        resource: tool.id,
-        outcome: 'success',
-        metadata: { path: installPath, duration: Date.now() - start },
-      });
+      auditLogger.record(
+        'tool.install',
+        'system:installer',
+        tool.id,
+        'success',
+        undefined,
+        { path: installPath, duration: Date.now() - start },
+      );
 
       this.emit('installed', result);
       logger.info('Tool installed successfully', {
@@ -234,12 +235,12 @@ export class Installer extends EventEmitter {
 
     this.installed.delete(toolId);
 
-    auditLogger.log({
-      actor: 'system:installer',
-      action: 'tool.uninstall',
-      resource: toolId,
-      outcome: 'success',
-    });
+    auditLogger.record(
+      'tool.uninstall',
+      'system:installer',
+      toolId,
+      'success',
+    );
 
     metrics.increment('tools_uninstalled_total');
     this.emit('uninstalled', toolId);
@@ -290,8 +291,8 @@ export class Installer extends EventEmitter {
           { cwd: installDir, timeout: 120_000 },
         );
 
-        if (stdout.trim()) logger.debug('npm stdout', { toolId: tool.id, stdout: stdout.trim() });
-        if (stderr.trim()) logger.debug('npm stderr', { toolId: tool.id, stderr: stderr.trim() });
+        if (stdout?.trim()) logger.debug('npm stdout', { toolId: tool.id, stdout: stdout.trim() });
+        if (stderr?.trim()) logger.debug('npm stderr', { toolId: tool.id, stderr: stderr.trim() });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         throw new Error(`npm install failed for ${tool.id}: ${msg}`);
@@ -315,13 +316,14 @@ export class Installer extends EventEmitter {
       error,
     };
 
-    auditLogger.log({
-      actor: 'system:installer',
-      action: 'tool.install',
-      resource: tool.id,
-      outcome: 'failure',
-      metadata: { error, duration: Date.now() - startMs },
-    });
+    auditLogger.record(
+      'tool.install',
+      'system:installer',
+      tool.id,
+      'failure',
+      undefined,
+      { error, duration: Date.now() - startMs },
+    );
 
     metrics.increment('tools_install_failures_total', { source: tool.source });
     this.emit('failed', result);
