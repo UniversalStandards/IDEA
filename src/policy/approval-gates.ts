@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
-import { auditLogger } from '../security/audit';
+import { auditLog } from '../security/audit';
 import { config } from '../config';
 
 const logger = createLogger('approval-gate');
@@ -74,13 +74,14 @@ export class ApprovalGate {
           current.denyReason = `Approval timed out after ${this.timeoutMs}ms`;
           this.pendingTimers.delete(req.id);
 
-          auditLogger.log({
-            actor: requestedBy,
-            action: `approval.timeout:${action}`,
-            resource: toolId,
-            outcome: 'denied',
-            metadata: { requestId: req.id },
-          });
+          auditLog.record(
+            `approval.timeout:${action}`,
+            requestedBy,
+            toolId,
+            'failure',
+            undefined,
+            { requestId: req.id },
+          );
 
           reject(new Error(`Approval request timed out: ${req.id}`));
         }
@@ -120,19 +121,20 @@ export class ApprovalGate {
       action,
       requestedBy,
       reason,
-      metadata,
+      metadata: metadata ?? {},
       status: 'pending',
       createdAt: new Date().toISOString(),
     };
     this.requests.set(req.id, req);
 
-    auditLogger.log({
-      actor: requestedBy,
-      action: `approval.request:${action}`,
-      resource: toolId,
-      outcome: 'success',
-      metadata: { requestId: req.id, reason },
-    });
+    auditLog.record(
+      `approval.request:${action}`,
+      requestedBy,
+      toolId,
+      'success',
+      undefined,
+      { requestId: req.id, reason },
+    );
 
     logger.info('Approval request created', { id: req.id, toolId, action, requestedBy });
     return req;
@@ -162,13 +164,14 @@ export class ApprovalGate {
       this.pendingTimers.delete(id);
     }
 
-    auditLogger.log({
-      actor: approvedBy,
-      action: `approval.approve:${req.action}`,
-      resource: req.toolId,
-      outcome: 'success',
-      metadata: { requestId: id },
-    });
+    auditLog.record(
+      `approval.approve:${req.action}`,
+      approvedBy,
+      req.toolId,
+      'success',
+      undefined,
+      { requestId: id },
+    );
 
     logger.info('Approval request approved', { id, approvedBy });
     return req;
@@ -192,13 +195,14 @@ export class ApprovalGate {
       this.pendingTimers.delete(id);
     }
 
-    auditLogger.log({
-      actor: deniedBy,
-      action: `approval.deny:${req.action}`,
-      resource: req.toolId,
-      outcome: 'denied',
-      metadata: { requestId: id, denyReason },
-    });
+    auditLog.record(
+      `approval.deny:${req.action}`,
+      deniedBy,
+      req.toolId,
+      'failure',
+      undefined,
+      { requestId: id, denyReason },
+    );
 
     logger.info('Approval request denied', { id, deniedBy, denyReason });
     return req;
