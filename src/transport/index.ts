@@ -1,4 +1,5 @@
 import type { Express } from 'express';
+import type { Server as HttpServer } from 'http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLogger } from '../observability/logger';
 import type { Config } from '../config';
@@ -11,6 +12,7 @@ import { ConnectionRateLimiter } from './middleware/rateLimit';
 import { SseTransport } from './sse';
 import { WsTransport } from './websocket';
 import { GrpcTransport } from './grpc';
+import type { HttpServerLike } from './http';
 
 const logger = createLogger('transport-manager');
 
@@ -73,8 +75,10 @@ export class TransportManager {
     this.transports.unshift(this.httpTransport);
 
     if (selected === 'websocket') {
+      const server = this.httpTransport.getServer();
+      assertHttpServer(server);
       deferredTransport = new WsTransport({
-        server: this.httpTransport.getServer(),
+        server,
         config: this.options.config,
         connectionPool: this.connectionPool,
         rateLimiter: this.rateLimiter,
@@ -131,6 +135,13 @@ export class TransportManager {
   getHttpServer(): ReturnType<HttpTransport['getServer']> {
     return this.httpTransport.getServer();
   }
+}
+
+function assertHttpServer(server: HttpServerLike): asserts server is HttpServer {
+  if ('setTimeout' in server) {
+    return;
+  }
+  throw new Error('WebSocket transport requires an HTTP/1.1 server');
 }
 
 class StdioTransportAdapter implements ITransport {

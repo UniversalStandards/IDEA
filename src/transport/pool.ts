@@ -20,7 +20,7 @@ export class ConnectionPool {
   constructor(private readonly options: ConnectionPoolOptions) {}
 
   acquire(clientId: string, connection: PoolConnectionHandle = {}): ConnectionLease {
-    const normalizedClientId = clientId.trim() || 'anonymous';
+    const normalizedClientId = this.normalizeClientId(clientId);
     const existing = this.connections.get(normalizedClientId) ?? new Map<string, PoolConnectionHandle>();
     if (existing.size >= this.options.maxConnectionsPerClient) {
       return {
@@ -42,7 +42,7 @@ export class ConnectionPool {
   }
 
   release(clientId: string, connectionId: string): void {
-    const normalizedClientId = clientId.trim() || 'anonymous';
+    const normalizedClientId = this.normalizeClientId(clientId);
     const existing = this.connections.get(normalizedClientId);
     if (!existing) {
       return;
@@ -55,7 +55,7 @@ export class ConnectionPool {
   }
 
   getConnectionCount(clientId: string): number {
-    return this.connections.get(clientId.trim() || 'anonymous')?.size ?? 0;
+    return this.connections.get(this.normalizeClientId(clientId))?.size ?? 0;
   }
 
   getTotalConnectionCount(): number {
@@ -63,7 +63,7 @@ export class ConnectionPool {
   }
 
   closeClientConnections(clientId: string): void {
-    const normalizedClientId = clientId.trim() || 'anonymous';
+    const normalizedClientId = this.normalizeClientId(clientId);
     const existing = this.connections.get(normalizedClientId);
     if (!existing) {
       return;
@@ -79,5 +79,9 @@ export class ConnectionPool {
     for (const [clientId] of this.connections) {
       this.closeClientConnections(clientId);
     }
+  }
+
+  private normalizeClientId(clientId: string): string {
+    return clientId.trim() || 'anonymous';
   }
 }

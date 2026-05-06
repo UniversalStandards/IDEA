@@ -57,7 +57,7 @@ export class SseTransport implements ITransport {
       res.flushHeaders?.();
 
       this.clients.set(lease.connectionId, { clientId, response: res });
-      this.publish({ type: 'connected', connectionId: lease.connectionId }, {
+      this.publish({ type: 'connected' }, {
         connectionId: lease.connectionId,
         event: 'connected',
       });

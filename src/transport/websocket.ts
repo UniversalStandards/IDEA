@@ -1,8 +1,7 @@
-import type { IncomingMessage } from 'http';
+import type { IncomingMessage, Server as HttpServer } from 'http';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import type { Config } from '../config';
 import { createLogger } from '../observability/logger';
-import type { HttpServerLike } from './http';
 import type { ITransport } from './index';
 import type { ConnectionPool } from './pool';
 import { ConnectionRateLimiter } from './middleware/rateLimit';
@@ -11,7 +10,7 @@ import { isTransportAuthorized } from './middleware/auth';
 const logger = createLogger('ws-transport');
 
 export interface WsTransportOptions {
-  readonly server: HttpServerLike;
+  readonly server: HttpServer;
   readonly config: Pick<Config, 'JWT_SECRET' | 'RATE_LIMIT_WINDOW_MS' | 'RATE_LIMIT_MAX_REQUESTS'>;
   readonly connectionPool: ConnectionPool;
   readonly onMessage: (payload: unknown) => Promise<unknown>;
@@ -44,7 +43,7 @@ export class WsTransport implements ITransport {
     }
 
     this.server = new WebSocketServer({
-      server: this.options.server as never,
+      server: this.options.server,
       path: this.options.path ?? '/transport/ws',
     });
 

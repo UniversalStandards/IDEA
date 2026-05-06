@@ -168,6 +168,9 @@ export class GrpcTransport implements ITransport {
       const source = this.options.onStream
         ? await this.options.onStream(call.request.payload)
         : await this.options.onMessage(call.request.payload);
+      if (!isStreamSource(source)) {
+        throw new Error('Stream source must be iterable or async-iterable');
+      }
 
       for await (const chunk of toAsyncIterable(source)) {
         call.write({ success: true, result: chunk });
@@ -226,19 +229,18 @@ function deserializeJson(buffer: Buffer): unknown {
 }
 
 async function* toAsyncIterable(
-  source: Iterable<unknown> | AsyncIterable<unknown> | unknown,
+  source: Iterable<unknown> | AsyncIterable<unknown>,
 ): AsyncIterable<unknown> {
   if (isAsyncIterable(source)) {
     yield* source;
     return;
   }
 
-  if (isIterable(source)) {
-    yield* source;
-    return;
-  }
+  yield* source;
+}
 
-  yield source;
+function isStreamSource(source: unknown): source is Iterable<unknown> | AsyncIterable<unknown> {
+  return isIterable(source) || isAsyncIterable(source);
 }
 
 function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {

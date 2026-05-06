@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
 import type { Config } from '../../config';
-import { constantTimeEqual } from '../../security/crypto';
 
 export interface TransportAuthOptions {
   readonly authorization?: string | undefined;
@@ -14,10 +13,6 @@ export function isTransportAuthorized(options: TransportAuthOptions): boolean {
 
   if (!token) {
     return !(options.required ?? false);
-  }
-
-  if (constantTimeEqual(token, options.config.JWT_SECRET)) {
-    return true;
   }
 
   try {

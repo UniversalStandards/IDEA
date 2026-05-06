@@ -38,7 +38,10 @@ describe('GrpcTransport', () => {
       host: '127.0.0.1',
       port: 0,
       onMessage: async (payload: unknown): Promise<unknown> => ({ received: payload }),
-      onStream: async (): Promise<unknown[]> => [{ index: 1 }, { index: 2 }],
+      onStream: async (payload: unknown): Promise<unknown[]> => {
+        const record = payload as Record<string, unknown>;
+        return [{ echoed: record['stream'] }, { index: 2 }];
+      },
     });
 
     await transport.initialize();
@@ -70,7 +73,10 @@ describe('GrpcTransport', () => {
 
     expect(unaryResponse.success).toBe(true);
     expect((unaryResponse.result as Record<string, unknown>)['received']).toEqual({ message: 'ping' });
-    expect(streamResponses.map((message) => (message.result as Record<string, unknown>)['index'])).toEqual([1, 2]);
+    expect(streamResponses.map((message) => message.result)).toEqual([
+      { echoed: true },
+      { index: 2 },
+    ]);
 
     client.close();
     await transport.stop();
