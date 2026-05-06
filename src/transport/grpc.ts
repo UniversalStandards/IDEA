@@ -7,6 +7,7 @@ import { ConnectionRateLimiter } from './middleware/rateLimit';
 import { isTransportAuthorized } from './middleware/auth';
 
 const logger = createLogger('grpc-transport');
+const DEFAULT_GRPC_PORT = 50_051;
 
 export interface GrpcEnvelope {
   readonly clientId?: string;
@@ -61,7 +62,7 @@ export class GrpcTransport implements ITransport {
 
   constructor(private readonly options: GrpcTransportOptions) {
     this.host = options.host ?? '0.0.0.0';
-    this.port = options.port ?? 50051;
+    this.port = options.port ?? DEFAULT_GRPC_PORT;
     this.rateLimiter =
       options.rateLimiter ??
       new ConnectionRateLimiter({

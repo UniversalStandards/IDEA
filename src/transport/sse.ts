@@ -6,6 +6,7 @@ import type { ConnectionPool } from './pool';
 import { isTransportAuthorized } from './middleware/auth';
 
 const logger = createLogger('sse-transport');
+const DEFAULT_HEARTBEAT_MS = 15_000;
 
 interface SseClient {
   readonly clientId: string;
@@ -68,7 +69,7 @@ export class SseTransport implements ITransport {
     });
 
     if (!this.heartbeat) {
-      const heartbeatMs = this.options.heartbeatMs ?? 15_000;
+      const heartbeatMs = this.options.heartbeatMs ?? DEFAULT_HEARTBEAT_MS;
       this.heartbeat = setInterval(() => {
         for (const client of this.clients.values()) {
           client.response.write(': keep-alive\n\n');

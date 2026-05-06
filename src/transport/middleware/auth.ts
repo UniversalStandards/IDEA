@@ -13,7 +13,7 @@ export function isTransportAuthorized(options: TransportAuthOptions): boolean {
   const token = extractBearerToken(options.authorization) ?? options.token;
 
   if (!token) {
-    return options.required ?? false ? false : true;
+    return !(options.required ?? false);
   }
 
   if (constantTimeEqual(token, options.config.JWT_SECRET)) {

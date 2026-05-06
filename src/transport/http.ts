@@ -13,6 +13,7 @@ import { createHttpRateLimitMiddleware } from './middleware/rateLimit';
 import type { ITransport } from './index';
 
 const logger = createLogger('http-transport');
+const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export type HttpServerLike = http.Server | http2.Http2Server;
 
@@ -133,7 +134,7 @@ export class HttpTransport implements ITransport {
       const abortController = new AbortController();
       const timeout = setTimeout(() => {
         abortController.abort();
-      }, 10_000);
+      }, GRACEFUL_SHUTDOWN_TIMEOUT_MS);
       timeout.unref();
 
       const onAbort = (): void => {
