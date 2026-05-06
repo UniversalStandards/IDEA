@@ -119,15 +119,17 @@ export class Installer extends EventEmitter {
   constructor(dependencies: InstallerDependencies = {}) {
     super();
 
-    const maxConcurrent = (() : number => {
+    const maxConcurrent = (): number => {
       try {
         return config.MAX_CONCURRENT_INSTALLS;
       } catch {
         return parseInt(process.env['MAX_CONCURRENT_INSTALLS'] ?? '5', 10);
       }
-    })();
+    };
 
-    this.semaphore = new Semaphore(maxConcurrent);
+    const resolvedMaxConcurrent = maxConcurrent();
+
+    this.semaphore = new Semaphore(resolvedMaxConcurrent);
     this.verifier = dependencies.verifier ?? signatureVerifier;
     this.versionManager = dependencies.versionManager ?? versionManager;
     this.runtimeRegistrar = dependencies.runtimeRegistrar ?? runtimeRegistrar;
@@ -345,7 +347,7 @@ export class Installer extends EventEmitter {
     }
 
     this.runtimeRegistrar.unregister(toolId);
-    const installDir = this.versionManager.getInstallRoot(toolId);
+    const installDir = this.installRootForTool(toolId);
     fs.rmSync(installDir, { recursive: true, force: true });
     this.installed.delete(toolId);
 
@@ -409,7 +411,7 @@ export class Installer extends EventEmitter {
         image: 'node:20-alpine',
         command: {
           cmd: 'npm',
-          args: ['install', '--save', '--no-audit', '--no-fund', '--ignore-scripts=false', ...specs],
+          args: ['install', '--save', '--no-audit', '--no-fund', '--ignore-scripts', ...specs],
           cwd: '/workspace',
         },
         allowedEndpoints: [],
@@ -498,9 +500,7 @@ export class Installer extends EventEmitter {
     }
 
     if (tool.entryPoint) {
-      const runtime = tool.entryPoint.endsWith('.py') ? 'python' : tool.entryPoint.endsWith('.wasm') ? tool.entryPoint : 'node';
-      const args = tool.entryPoint.endsWith('.wasm') ? [] : [tool.entryPoint];
-      return { cmd: runtime, args };
+      return this.resolveEntryPointCommand(tool.entryPoint);
     }
 
     const metaCommand = tool.metadata?.['command'];
@@ -512,6 +512,16 @@ export class Installer extends EventEmitter {
       cmd: 'npx',
       args: ['--yes', this.primaryPackageName(tool)],
     };
+  }
+
+  private resolveEntryPointCommand(entryPoint: string): SandboxCommand {
+    if (entryPoint.endsWith('.py')) {
+      return { cmd: 'python', args: [entryPoint] };
+    }
+    if (entryPoint.endsWith('.wasm')) {
+      return { cmd: entryPoint, args: [] };
+    }
+    return { cmd: 'node', args: [entryPoint] };
   }
 
   private parseCommand(command: string): SandboxCommand {
@@ -538,6 +548,15 @@ export class Installer extends EventEmitter {
 
   private readNumber(value: unknown, fallback: number): number {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  }
+
+  private installRootForTool(toolId: string): string {
+    const root = path.resolve(INSTALL_BASE_DIR, sanitizeName(toolId));
+    const expectedPrefix = `${INSTALL_BASE_DIR}${path.sep}`;
+    if (root !== INSTALL_BASE_DIR && !root.startsWith(expectedPrefix)) {
+      throw new Error(`Resolved install path escapes the managed install directory: ${toolId}`);
+    }
+    return root;
   }
 
   private async prepareInstallDirectory(tool: ToolMetadata, installDir: string): Promise<void> {

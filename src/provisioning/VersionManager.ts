@@ -222,7 +222,12 @@ export class VersionManager {
 
     try {
       fs.symlinkSync(installPath, pointer, 'dir');
-    } catch {
+    } catch (error) {
+      logger.warn('Falling back to file-based current pointer', {
+        serverId,
+        installPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
       fs.writeFileSync(pointer, installPath, 'utf8');
     }
   }

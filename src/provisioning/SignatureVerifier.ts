@@ -361,8 +361,16 @@ export class SignatureVerifier {
     };
   }
 
+  private isBundle(value: unknown): value is Bundle {
+    if (typeof value !== 'object' || value === null) {
+      return false;
+    }
+    const record = value as Record<string, unknown>;
+    return 'mediaType' in record && 'content' in record && 'verificationMaterial' in record;
+  }
+
   private readBundle(value: unknown): Bundle | undefined {
-    return typeof value === 'object' && value !== null ? (value as Bundle) : undefined;
+    return this.isBundle(value) ? value : undefined;
   }
 
   private readRecord(value: unknown): Record<string, unknown> | undefined {

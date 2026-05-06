@@ -118,5 +118,4 @@ function padKey(key: string): string {
 }
 
 
-export const timingSafeEqualStrings = constantTimeEqual;
 export const timingSafeEqual = constantTimeEqual;
