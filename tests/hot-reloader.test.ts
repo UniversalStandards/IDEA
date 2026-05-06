@@ -55,6 +55,8 @@ describe('HotReloader', () => {
 
     expect(calls[0]).toBe('start:new');
     expect(calls).toContain('stop:old');
+    expect(calls).toContain('remove:old');
+    expect(calls).toHaveLength(3);
     expect(registrar.register).toHaveBeenCalled();
   });
 });

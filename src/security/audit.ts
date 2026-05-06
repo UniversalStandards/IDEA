@@ -31,6 +31,7 @@ class AuditLogger {
   private readonly buffer: AuditEntry[] = [];
   private flushPromise: Promise<void> | null = null;
   private readonly enabled: boolean;
+  private directoryReady = false;
 
   constructor() {
     try {
@@ -129,13 +130,21 @@ class AuditLogger {
     }
   }
 
+  private async ensureDirectory(): Promise<void> {
+    if (this.directoryReady) {
+      return;
+    }
+    await mkdir(path.dirname(AUDIT_LOG_PATH), { recursive: true });
+    this.directoryReady = true;
+  }
+
   private async writeLine(entry: AuditEntry): Promise<void> {
     if (process.env['NODE_ENV'] === 'test') {
       return;
     }
 
     try {
-      await mkdir(path.dirname(AUDIT_LOG_PATH), { recursive: true });
+      await this.ensureDirectory();
       await appendFile(AUDIT_LOG_PATH, `${JSON.stringify(entry)}\n`, 'utf8');
     } catch (error) {
       logger.warn('Failed to write audit entry to disk', {

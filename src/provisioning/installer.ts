@@ -300,12 +300,12 @@ export class Installer extends EventEmitter {
 
     const target = this.versionManager.rollback(toolId, version);
     const sandboxMetadata = target.metadata['sandboxSpec'];
-    if (typeof sandboxMetadata !== 'object' || sandboxMetadata === null) {
+    if (!this.isSandboxSpec(sandboxMetadata)) {
       throw new Error(`Rollback metadata missing sandbox spec for ${toolId}@${target.version}`);
     }
 
     const sandbox = target.metadata['sandboxKind'] === 'wasm' ? this.wasmSandbox : this.dockerSandbox;
-    const handle = await sandbox.provision(sandboxMetadata as SandboxSpec);
+    const handle = await sandbox.provision(sandboxMetadata);
     const runtimeConfig = this.configGenerator.generate(currentTool, {});
     const rolledTool = { ...currentTool, version: target.version };
     const previousHandle = this.hotReloader.getActiveHandle(toolId);
@@ -347,7 +347,12 @@ export class Installer extends EventEmitter {
     }
 
     this.runtimeRegistrar.unregister(toolId);
-    const installDir = this.installRootForTool(toolId);
+    const sanitizedToolId = sanitizeName(toolId);
+    const installDir = path.join(INSTALL_BASE_DIR, sanitizedToolId);
+    const relativeInstallDir = path.relative(INSTALL_BASE_DIR, installDir);
+    if (relativeInstallDir.startsWith('..') || path.isAbsolute(relativeInstallDir)) {
+      throw new Error(`Resolved install path escapes the managed install directory: ${toolId}`);
+    }
     fs.rmSync(installDir, { recursive: true, force: true });
     this.installed.delete(toolId);
 
@@ -550,13 +555,23 @@ export class Installer extends EventEmitter {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
   }
 
-  private installRootForTool(toolId: string): string {
-    const root = path.resolve(INSTALL_BASE_DIR, sanitizeName(toolId));
-    const expectedPrefix = `${INSTALL_BASE_DIR}${path.sep}`;
-    if (root !== INSTALL_BASE_DIR && !root.startsWith(expectedPrefix)) {
-      throw new Error(`Resolved install path escapes the managed install directory: ${toolId}`);
+  private isSandboxSpec(value: unknown): value is SandboxSpec {
+    if (typeof value !== 'object' || value === null) {
+      return false;
     }
-    return root;
+
+    const record = value as Record<string, unknown>;
+    const command = record['command'];
+    if (typeof command !== 'object' || command === null) {
+      return false;
+    }
+
+    const commandRecord = command as Record<string, unknown>;
+    return typeof record['toolId'] === 'string'
+      && typeof record['version'] === 'string'
+      && typeof record['capabilityDir'] === 'string'
+      && typeof commandRecord['cmd'] === 'string'
+      && Array.isArray(commandRecord['args']);
   }
 
   private async prepareInstallDirectory(tool: ToolMetadata, installDir: string): Promise<void> {
