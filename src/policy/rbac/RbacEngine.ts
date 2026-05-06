@@ -32,6 +32,7 @@ export class RbacEngine {
 
   registerRole(role: RoleDefinition): void {
     const parsed = RoleDefinitionSchema.parse(role);
+    const previous = this.roles.get(parsed.name);
 
     for (const inherited of parsed.inherits) {
       if (inherited === parsed.name) {
@@ -44,6 +45,18 @@ export class RbacEngine {
       permissions: [...parsed.permissions],
       inherits: [...parsed.inherits],
     });
+
+    try {
+      this.assertAcyclicRoleGraph();
+    } catch (error) {
+      if (previous) {
+        this.roles.set(parsed.name, previous);
+      } else {
+        this.roles.delete(parsed.name);
+      }
+      throw error;
+    }
+
     this.clearCache();
   }
 
@@ -144,13 +157,13 @@ export class RbacEngine {
     visited: Set<string>,
     stack: string[],
   ): void {
-    if (visited.has(roleName)) {
-      return;
-    }
-
     if (stack.includes(roleName)) {
       const chain = [...stack, roleName].join(' -> ');
       throw new Error(`RBAC role inheritance cycle detected: ${chain}`);
+    }
+
+    if (visited.has(roleName)) {
+      return;
     }
 
     const role = this.roles.get(roleName);
@@ -168,6 +181,37 @@ export class RbacEngine {
     }
 
     visited.add(roleName);
+  }
+
+  private assertAcyclicRoleGraph(): void {
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+
+    const visit = (roleName: string): void => {
+      if (recursionStack.has(roleName)) {
+        const cycle = Array.from(recursionStack.values()).join(' -> ');
+        throw new Error(`RBAC role inheritance cycle detected: ${cycle} -> ${roleName}`);
+      }
+      if (visited.has(roleName)) {
+        return;
+      }
+
+      visited.add(roleName);
+      recursionStack.add(roleName);
+
+      const role = this.roles.get(roleName);
+      if (role) {
+        for (const inheritedRole of role.inherits) {
+          visit(inheritedRole);
+        }
+      }
+
+      recursionStack.delete(roleName);
+    };
+
+    for (const roleName of this.roles.keys()) {
+      visit(roleName);
+    }
   }
 
   private clearCache(): void {

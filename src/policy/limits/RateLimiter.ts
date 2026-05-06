@@ -51,13 +51,22 @@ export class RateLimiter {
   private async checkRedis(key: string, descriptor: RateLimitDescriptor): Promise<RateLimitResult> {
     const now = Date.now();
     const windowStart = now - descriptor.windowMs;
+    const client = this.redisClient;
 
-    await this.redisClient?.zRemRangeByScore(key, Number.NEGATIVE_INFINITY, windowStart);
-    await this.redisClient?.zAdd(key, [{ score: now, value: randomUUID() }]);
-    await this.redisClient?.pExpire(key, descriptor.windowMs);
+    if (!client) {
+      return this.checkInMemory(key, descriptor);
+    }
 
-    const count = (await this.redisClient?.zCard(key)) ?? 0;
-    const allowed = count <= descriptor.maxRequests;
+    await client.zRemRangeByScore(key, Number.NEGATIVE_INFINITY, windowStart);
+    const countBefore = await client.zCard(key);
+    const allowed = countBefore < descriptor.maxRequests;
+
+    if (allowed) {
+      await client.zAdd(key, [{ score: now, value: randomUUID() }]);
+      await client.pExpire(key, descriptor.windowMs);
+    }
+
+    const count = allowed ? countBefore + 1 : countBefore;
     const remaining = Math.max(0, descriptor.maxRequests - count);
 
     return {
@@ -73,12 +82,15 @@ export class RateLimiter {
     const windowStart = now - descriptor.windowMs;
     const values = this.inMemoryWindows.get(key) ?? [];
     const filtered = values.filter((timestamp) => timestamp > windowStart);
-    filtered.push(now);
+    const allowed = filtered.length < descriptor.maxRequests;
+    if (allowed) {
+      filtered.push(now);
+    }
 
     this.inMemoryWindows.set(key, filtered);
 
-    const allowed = filtered.length <= descriptor.maxRequests;
-    const remaining = Math.max(0, descriptor.maxRequests - filtered.length);
+    const count = filtered.length;
+    const remaining = Math.max(0, descriptor.maxRequests - count);
     const oldestTimestamp = filtered[0] ?? now;
     const retryAfterMs = allowed ? 0 : Math.max(1, descriptor.windowMs - (now - oldestTimestamp));
 

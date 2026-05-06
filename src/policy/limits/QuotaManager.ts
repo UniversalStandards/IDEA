@@ -83,7 +83,8 @@ export class QuotaManager extends EventEmitter {
     }
 
     if (exceededDimensions.length > 0) {
-      const reason = `Quota exceeded for org ${orgId}: ${exceededDimensions.join(', ')}`;
+      const safeOrgId = orgId.replace(/[\r\n\t]/gu, '_');
+      const reason = `Quota exceeded for org ${safeOrgId}: ${exceededDimensions.join(', ')}`;
       this.emit('quota.exceeded', {
         orgId,
         reason,

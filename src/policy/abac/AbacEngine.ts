@@ -3,6 +3,8 @@ import path from 'path';
 import { z } from 'zod';
 
 type ScalarValue = string | number | boolean | null;
+const MAX_YAML_NESTING_DEPTH = 10;
+const MAX_POLICY_FILE_SIZE_BYTES = 1_000_000;
 
 const ConditionSchema: z.ZodType<
   | { all: Condition[] }
@@ -103,7 +105,11 @@ function parseSimpleYaml(raw: string): unknown {
 
   let index = 0;
 
-  const parseBlock = (indent: number): unknown => {
+  const parseBlock = (indent: number, depth: number): unknown => {
+    if (depth > MAX_YAML_NESTING_DEPTH) {
+      throw new Error(`YAML policy exceeds maximum nesting depth (${MAX_YAML_NESTING_DEPTH})`);
+    }
+
     if (index >= lines.length) return {};
 
     const currentLine = lines[index];
@@ -127,7 +133,7 @@ function parseSimpleYaml(raw: string): unknown {
         index += 1;
 
         if (itemText.length === 0) {
-          result.push(parseBlock(indent + 2));
+          result.push(parseBlock(indent + 2, depth + 1));
           continue;
         }
 
@@ -136,7 +142,7 @@ function parseSimpleYaml(raw: string): unknown {
           const key = itemText.slice(0, inlineSeparator).trim();
           const rawValue = itemText.slice(inlineSeparator + 1).trim();
           const obj: Record<string, unknown> = {};
-          obj[key] = rawValue.length === 0 ? parseBlock(indent + 2) : parseScalar(rawValue);
+          obj[key] = rawValue.length === 0 ? parseBlock(indent + 2, depth + 1) : parseScalar(rawValue);
 
           while (index < lines.length) {
             const next = lines[index];
@@ -150,7 +156,7 @@ function parseSimpleYaml(raw: string): unknown {
             const nestedKey = nextTrimmed.slice(0, sep).trim();
             const nestedRaw = nextTrimmed.slice(sep + 1).trim();
             index += 1;
-            obj[nestedKey] = nestedRaw.length === 0 ? parseBlock(nextIndent + 2) : parseScalar(nestedRaw);
+            obj[nestedKey] = nestedRaw.length === 0 ? parseBlock(nextIndent + 2, depth + 1) : parseScalar(nestedRaw);
           }
 
           result.push(obj);
@@ -183,12 +189,12 @@ function parseSimpleYaml(raw: string): unknown {
       const rawValue = trimmed.slice(separator + 1).trim();
       index += 1;
 
-      result[key] = rawValue.length === 0 ? parseBlock(indent + 2) : parseScalar(rawValue);
+      result[key] = rawValue.length === 0 ? parseBlock(indent + 2, depth + 1) : parseScalar(rawValue);
     }
     return result;
   };
 
-  return parseBlock(0);
+  return parseBlock(0, 0);
 }
 
 export class PolicyStore {
@@ -211,12 +217,15 @@ export class PolicyStore {
 
     if (fs.existsSync(yamlPath)) {
       raw = fs.readFileSync(yamlPath, 'utf8');
+      if (raw.length > MAX_POLICY_FILE_SIZE_BYTES) throw new Error(`Policy file too large for org '${orgId}'`);
       parsed = parseSimpleYaml(raw);
     } else if (fs.existsSync(ymlPath)) {
       raw = fs.readFileSync(ymlPath, 'utf8');
+      if (raw.length > MAX_POLICY_FILE_SIZE_BYTES) throw new Error(`Policy file too large for org '${orgId}'`);
       parsed = parseSimpleYaml(raw);
     } else if (fs.existsSync(jsonPath)) {
       raw = fs.readFileSync(jsonPath, 'utf8');
+      if (raw.length > MAX_POLICY_FILE_SIZE_BYTES) throw new Error(`Policy file too large for org '${orgId}'`);
       parsed = JSON.parse(raw) as unknown;
     }
 

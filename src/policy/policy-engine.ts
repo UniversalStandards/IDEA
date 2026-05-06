@@ -1,5 +1,6 @@
 import { createLogger } from '../observability/logger';
 import { config } from '../config';
+import path from 'path';
 import { RbacEngine, type RoleDefinition } from './rbac/RbacEngine';
 import { AbacEngine, PolicyStore, type AbacRequest } from './abac/AbacEngine';
 import { CsaTrustFramework, CsaTrustLevel } from './csa/CsaTrustFramework';
@@ -158,7 +159,10 @@ export class PolicyEngine {
     this.trustLevelEvaluator = new TrustLevelEvaluator(this.csaFramework);
     this.rateLimiter = new RateLimiter();
     this.quotaManager = new QuotaManager();
-    this.policyAuditLog = new PolicyAuditLog();
+    const auditPath = policyBaseDir
+      ? path.join(policyBaseDir, 'policy-audit.jsonl')
+      : undefined;
+    this.policyAuditLog = new PolicyAuditLog(auditPath);
   }
 
   getRbacEngine(): RbacEngine {
@@ -263,8 +267,22 @@ export class PolicyEngine {
 
   async evaluateGovernance(input: GovernanceContext): Promise<GovernanceDecision> {
     const permissions = this.rbacEngine.resolvePermissions(input.orgId, input.userId);
+    const assignedRoles = this.rbacEngine.getUserRoles(input.orgId, input.userId);
 
-    const roleHint = input.roleHint ?? this.rbacEngine.getUserRoles(input.orgId, input.userId)[0] ?? 'intern';
+    if (assignedRoles.length === 0 && !input.roleHint) {
+      const safeUserId = input.userId.replace(/[\r\n\t]/gu, '_');
+      const safeOrgId = input.orgId.replace(/[\r\n\t]/gu, '_');
+      return {
+        allowed: false,
+        requiresApproval: false,
+        reasons: [`No RBAC role assignment found for user '${safeUserId}' in org '${safeOrgId}'`],
+        csaLevel: CsaTrustLevel.Intern,
+        csaLevelName: this.csaFramework.getLevelName(CsaTrustLevel.Intern),
+        permissions: [],
+      };
+    }
+
+    const roleHint = input.roleHint ?? assignedRoles[0] ?? 'intern';
     const trustInput: TrustEvaluationInput = {
       role: roleHint,
       permissions: Array.from(permissions),
@@ -326,7 +344,7 @@ export class PolicyEngine {
       },
       subject: {
         id: input.userId,
-        roles: this.rbacEngine.getUserRoles(input.orgId, input.userId),
+        roles: assignedRoles,
         attributes: input.subjectAttributes ?? {},
       },
       environment: input.environment ?? {},
