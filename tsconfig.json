@@ -3,7 +3,9 @@
     "target": "ES2022",
     "module": "CommonJS",
     "moduleResolution": "node",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -28,19 +30,50 @@
     "incremental": true,
     "tsBuildInfoFile": ".tsbuildinfo",
     "paths": {
-      "@core/*": ["./src/core/*"],
-      "@discovery/*": ["./src/discovery/*"],
-      "@provisioning/*": ["./src/provisioning/*"],
-      "@routing/*": ["./src/routing/*"],
-      "@policy/*": ["./src/policy/*"],
-      "@security/*": ["./src/security/*"],
-      "@orchestration/*": ["./src/orchestration/*"],
-      "@observability/*": ["./src/observability/*"],
-      "@normalization/*": ["./src/normalization/*"],
-      "@adapters/*": ["./src/adapters/*"],
-      "@api/*": ["./src/api/*"]
-    }
+      "@core/*": [
+        "./src/core/*"
+      ],
+      "@discovery/*": [
+        "./src/discovery/*"
+      ],
+      "@provisioning/*": [
+        "./src/provisioning/*"
+      ],
+      "@routing/*": [
+        "./src/routing/*"
+      ],
+      "@policy/*": [
+        "./src/policy/*"
+      ],
+      "@security/*": [
+        "./src/security/*"
+      ],
+      "@orchestration/*": [
+        "./src/orchestration/*"
+      ],
+      "@observability/*": [
+        "./src/observability/*"
+      ],
+      "@normalization/*": [
+        "./src/normalization/*"
+      ],
+      "@adapters/*": [
+        "./src/adapters/*"
+      ],
+      "@api/*": [
+        "./src/api/*"
+      ]
+    },
+    "ignoreDeprecations": "5.0"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests", "**/*.test.ts", "**/*.spec.ts"]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "tests",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
 }
