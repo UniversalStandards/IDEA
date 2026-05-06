@@ -54,7 +54,7 @@ export class SseTransport implements ITransport {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache, no-transform');
       res.setHeader('Connection', 'keep-alive');
-      res.flushHeaders?.();
+      res.flushHeaders();
 
       this.clients.set(lease.connectionId, { clientId, response: res });
       this.publish({ type: 'connected' }, {

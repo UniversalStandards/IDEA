@@ -1,6 +1,7 @@
 import * as http from 'http';
 import express from 'express';
 import type { AddressInfo } from 'net';
+import jwt from 'jsonwebtoken';
 import type { Config } from '../src/config';
 import { ConnectionPool } from '../src/transport/pool';
 import { SseTransport } from '../src/transport/sse';
@@ -23,6 +24,7 @@ describe('SseTransport', () => {
   it('streams chunked events to connected clients', async () => {
     const app = express();
     const config = makeConfig();
+    const token = jwt.sign({ sub: 'agent-1' }, config.JWT_SECRET);
     const sseTransport = new SseTransport({
       app,
       config,
@@ -43,7 +45,14 @@ describe('SseTransport', () => {
       let published = false;
 
       const request = http.get(
-        `http://127.0.0.1:${String(address.port)}/events?clientId=agent-1`,
+        {
+          hostname: '127.0.0.1',
+          port: address.port,
+          path: '/events?clientId=agent-1',
+          headers: {
+            authorization: `Bearer ${token}`,
+          },
+        },
         (response) => {
           response.setEncoding('utf8');
           response.on('data', (chunk: string) => {

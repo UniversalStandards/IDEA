@@ -1,4 +1,5 @@
 import * as grpc from '@grpc/grpc-js';
+import jwt from 'jsonwebtoken';
 import type { Config } from '../src/config';
 import { ConnectionPool } from '../src/transport/pool';
 import {
@@ -11,9 +12,10 @@ import {
 type TransportClient = grpc.Client & {
   call(
     request: GrpcEnvelope,
+    metadata: grpc.Metadata,
     callback: (error: grpc.ServiceError | null, response: GrpcResponseEnvelope) => void,
   ): void;
-  stream(request: GrpcEnvelope): grpc.ClientReadableStream<GrpcResponseEnvelope>;
+  stream(request: GrpcEnvelope, metadata: grpc.Metadata): grpc.ClientReadableStream<GrpcResponseEnvelope>;
 };
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
@@ -32,8 +34,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
 
 describe('GrpcTransport', () => {
   it('supports unary and server-streaming RPCs', async () => {
+    const config = makeConfig();
     const transport = new GrpcTransport({
-      config: makeConfig(),
+      config,
       connectionPool: new ConnectionPool({ maxConnectionsPerClient: 2 }),
       host: '127.0.0.1',
       port: 0,
@@ -52,9 +55,11 @@ describe('GrpcTransport', () => {
       credentials: grpc.ChannelCredentials,
     ) => TransportClient;
     const client = new Client(transport.getAddress(), grpc.credentials.createInsecure());
+    const metadata = new grpc.Metadata();
+    metadata.set('authorization', `Bearer ${jwt.sign({ sub: 'agent-1' }, config.JWT_SECRET)}`);
 
     const unaryResponse = await new Promise<GrpcResponseEnvelope>((resolve, reject) => {
-      client.call({ clientId: 'agent-1', payload: { message: 'ping' } }, (error, response) => {
+      client.call({ clientId: 'agent-1', payload: { message: 'ping' } }, metadata, (error, response) => {
         if (error) {
           reject(error);
           return;
@@ -65,7 +70,7 @@ describe('GrpcTransport', () => {
 
     const streamResponses = await new Promise<GrpcResponseEnvelope[]>((resolve, reject) => {
       const responses: GrpcResponseEnvelope[] = [];
-      const stream = client.stream({ clientId: 'agent-1', payload: { stream: true } });
+      const stream = client.stream({ clientId: 'agent-1', payload: { stream: true } }, metadata);
       stream.on('data', (message) => responses.push(message));
       stream.on('end', () => resolve(responses));
       stream.on('error', reject);

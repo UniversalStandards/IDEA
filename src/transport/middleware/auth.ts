@@ -12,7 +12,7 @@ export function isTransportAuthorized(options: TransportAuthOptions): boolean {
   const token = extractBearerToken(options.authorization) ?? options.token;
 
   if (!token) {
-    return !(options.required ?? false);
+    return options.required === false;
   }
 
   try {

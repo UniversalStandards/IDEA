@@ -1,6 +1,7 @@
 import * as http from 'http';
 import express from 'express';
 import type { AddressInfo } from 'net';
+import jwt from 'jsonwebtoken';
 import WebSocket, { type RawData } from 'ws';
 import type { Config } from '../src/config';
 import { ConnectionPool } from '../src/transport/pool';
@@ -24,13 +25,15 @@ describe('WsTransport', () => {
   it('supports bidirectional JSON messaging', async () => {
     const app = express();
     const server = http.createServer(app);
+    const config = makeConfig();
+    const token = jwt.sign({ sub: 'agent-1' }, config.JWT_SECRET);
     await new Promise<void>((resolve) => {
       server.listen(0, resolve);
     });
 
     const wsTransport = new WsTransport({
       server,
-      config: makeConfig(),
+      config,
       connectionPool: new ConnectionPool({ maxConnectionsPerClient: 2 }),
       path: '/ws',
       onMessage: async (payload: unknown): Promise<unknown> => {
@@ -42,7 +45,11 @@ describe('WsTransport', () => {
     await wsTransport.start();
 
     const address = server.address() as AddressInfo;
-    const client = new WebSocket(`ws://127.0.0.1:${String(address.port)}/ws`);
+    const client = new WebSocket(`ws://127.0.0.1:${String(address.port)}/ws`, {
+      headers: {
+        authorization: `Bearer ${token}`,
+      },
+    });
 
     const response = await new Promise<Record<string, unknown>>((resolve, reject) => {
       client.on('message', (raw: RawData) => {

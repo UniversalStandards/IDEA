@@ -92,7 +92,7 @@ export class WsTransport implements ITransport {
     }
 
     this.connections.set(lease.connectionId, { clientId, socket });
-    socket.send(JSON.stringify({ type: 'connected', connectionId: lease.connectionId }));
+    socket.send(JSON.stringify({ type: 'connected' }));
 
     socket.on('message', (message) => {
       void this.handleMessage(lease.connectionId, clientId, socket, message);
@@ -138,7 +138,6 @@ export class WsTransport implements ITransport {
       socket.send(
         JSON.stringify({
           type: 'response',
-          connectionId,
           data: response,
         }),
       );
@@ -150,8 +149,7 @@ export class WsTransport implements ITransport {
       socket.send(
         JSON.stringify({
           type: 'error',
-          connectionId,
-          error: err instanceof Error ? err.message : String(err),
+          error: 'Request handling failed',
         }),
       );
     }

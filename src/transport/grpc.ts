@@ -137,7 +137,7 @@ export class GrpcTransport implements ITransport {
     }
 
     try {
-      this.assertAuthorized(call.request.authorization);
+      this.assertAuthorized(resolveAuthorization(call.metadata, call.request.authorization));
       this.assertRateLimit(clientId);
       const result = await this.options.onMessage(call.request.payload);
       callback(null, { success: true, result });
@@ -163,7 +163,7 @@ export class GrpcTransport implements ITransport {
     }
 
     try {
-      this.assertAuthorized(call.request.authorization);
+      this.assertAuthorized(resolveAuthorization(call.metadata, call.request.authorization));
       this.assertRateLimit(clientId);
       const source = this.options.onStream
         ? await this.options.onStream(call.request.payload)
@@ -249,4 +249,13 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
 
 function isIterable(value: unknown): value is Iterable<unknown> {
   return typeof value === 'object' && value !== null && Symbol.iterator in value;
+}
+
+function resolveAuthorization(metadata: grpc.Metadata, requestAuthorization?: string): string | undefined {
+  if (requestAuthorization) {
+    return requestAuthorization;
+  }
+
+  const header = metadata.get('authorization')[0];
+  return typeof header === 'string' ? header : undefined;
 }
