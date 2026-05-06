@@ -81,7 +81,7 @@ export class WsTransport implements ITransport {
         config: this.options.config,
       })
     ) {
-      socket.close(1008, 'Unauthorized');
+      socket.close(4001, 'Unauthorized');
       return;
     }
 

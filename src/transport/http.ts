@@ -102,6 +102,8 @@ export class HttpTransport implements ITransport {
     this.server =
       this.name === 'http2'
         ? http2.createServer({}, (request, response) => {
+            // Express expects HTTP/1-style request/response objects; Node's HTTP/2
+            // compatibility API is close enough for our route handling in cleartext mode.
             this.options.app(request as never, response as never);
           })
         : http.createServer(this.options.app);

@@ -76,7 +76,8 @@ export class ConnectionPool {
   }
 
   clear(): void {
-    for (const [clientId] of this.connections) {
+    const clientIds = Array.from(this.connections.keys());
+    for (const clientId of clientIds) {
       this.closeClientConnections(clientId);
     }
   }

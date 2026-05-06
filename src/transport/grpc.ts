@@ -169,7 +169,9 @@ export class GrpcTransport implements ITransport {
         ? await this.options.onStream(call.request.payload)
         : await this.options.onMessage(call.request.payload);
       if (!isStreamSource(source)) {
-        throw new Error('Stream source must be iterable or async-iterable');
+        throw new Error(
+          'Stream handler must return an iterable or async-iterable value for server-streaming calls',
+        );
       }
 
       for await (const chunk of toAsyncIterable(source)) {
