@@ -37,7 +37,15 @@ export class TenantManager extends EventEmitter {
     const tenant = await this.store.setStatus(orgId, 'suspended');
     this.emitLifecycle('tenant.suspended', orgId, { tenant });
 
-    const terminatedSessions = await this.terminateSessions(orgId, 5_000);
+    let terminatedSessions = 0;
+    try {
+      terminatedSessions = await this.terminateSessions(orgId, 5_000);
+    } catch (err) {
+      logger.warn('Tenant session termination timed out after suspension', {
+        orgId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
     this.emitLifecycle('tenant.sessions.terminated', orgId, { terminatedSessions });
 
     return tenant;
@@ -87,14 +95,19 @@ export class TenantManager extends EventEmitter {
   }
 
   private async terminateSessions(orgId: string, timeoutMs: number): Promise<number> {
+    let timeoutHandle: NodeJS.Timeout | undefined;
     const timeoutPromise = new Promise<number>((_, reject) => {
-      const timeout = setTimeout(() => reject(new Error(`Session termination timed out for ${orgId}`)), timeoutMs);
-      timeout.unref();
+      timeoutHandle = setTimeout(() => reject(new Error(`Session termination timed out for ${orgId}`)), timeoutMs);
     });
 
-    const terminationPromise = this.store.terminateSessions(orgId);
-    const result = await Promise.race([terminationPromise, timeoutPromise]);
-    return result;
+    try {
+      const terminationPromise = this.store.terminateSessions(orgId);
+      return await Promise.race([terminationPromise, timeoutPromise]);
+    } finally {
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+      }
+    }
   }
 
   private emitLifecycle(event: TenantLifecycleEvent, orgId: string, metadata: Record<string, unknown>): void {

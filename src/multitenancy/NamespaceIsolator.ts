@@ -3,6 +3,7 @@ import path from 'path';
 import { createLogger } from '../observability/logger';
 
 const logger = createLogger('namespace-isolator');
+const ORG_ID_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,61}[a-zA-Z0-9]$/; // 3-63 chars, must start/end alphanumeric
 
 export interface KeyValueStore {
   get(key: string): unknown;
@@ -102,7 +103,7 @@ export class NamespaceIsolator {
   }
 
   private assertOrgId(orgId: string): void {
-    if (!/^[a-zA-Z0-9_-]+$/.test(orgId)) {
+    if (!ORG_ID_PATTERN.test(orgId)) {
       throw new Error(`Invalid orgId: '${orgId}'`);
     }
   }
@@ -111,7 +112,7 @@ export class NamespaceIsolator {
     if (!resource || resource.trim() === '') {
       throw new Error('Resource key must not be empty');
     }
-    if (resource.includes('tenant:') || resource.includes('tc:')) {
+    if (resource.startsWith('tenant:') || resource.startsWith('tc:')) {
       throw new Error('Resource must not contain tenant/cache namespace prefixes');
     }
     if (resource.includes('..')) {

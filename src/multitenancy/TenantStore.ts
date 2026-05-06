@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'crypto';
+import { randomUUID, scryptSync } from 'crypto';
 import { mkdir, readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
@@ -12,6 +12,7 @@ import {
 } from './schemas/tenant.schema';
 
 const logger = createLogger('tenant-store');
+const API_KEY_HASH_SALT = process.env['TENANT_API_KEY_SALT'] ?? 'tenant-api-key-salt-v1';
 
 const TenantStoreSnapshotSchema = z.object({
   tenants: z.array(TenantSchema),
@@ -220,23 +221,29 @@ export class TenantStore {
   }
 
   private hashApiKey(apiKey: string): string {
-    return createHash('sha256').update(apiKey).digest('hex');
+    return scryptSync(apiKey, API_KEY_HASH_SALT, 64).toString('hex');
   }
 
   private async persist(): Promise<void> {
-    this.persistQueue = this.persistQueue.then(async () => {
-      const snapshot: TenantStoreSnapshot = {
-        tenants: this.list(),
-        memberships: Array.from(this.memberships.values()),
-        apiKeys: Object.fromEntries(this.apiKeyToOrg.entries()),
-        sessions: Object.fromEntries(
-          Array.from(this.orgSessions.entries()).map(([orgId, sessions]) => [orgId, Array.from(sessions.values())]),
-        ),
-      };
+    this.persistQueue = this.persistQueue
+      .catch((err: unknown) => {
+        logger.warn('Previous tenant store persist operation failed', {
+          err: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .then(async () => {
+        const snapshot: TenantStoreSnapshot = {
+          tenants: this.list(),
+          memberships: Array.from(this.memberships.values()),
+          apiKeys: Object.fromEntries(this.apiKeyToOrg.entries()),
+          sessions: Object.fromEntries(
+            Array.from(this.orgSessions.entries()).map(([orgId, sessionSet]) => [orgId, Array.from(sessionSet.values())]),
+          ),
+        };
 
-      await mkdir(path.dirname(this.storePath), { recursive: true });
-      await writeFile(this.storePath, JSON.stringify(snapshot, null, 2), 'utf8');
-    });
+        await mkdir(path.dirname(this.storePath), { recursive: true });
+        await writeFile(this.storePath, JSON.stringify(snapshot, null, 2), 'utf8');
+      });
 
     await this.persistQueue;
   }

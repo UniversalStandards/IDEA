@@ -28,7 +28,7 @@ export function createTenantMiddleware(store: TenantStore) {
 
     const tenant = store.get(orgId);
     if (tenant?.status !== 'active') {
-      res.status(401).json({ error: 'Missing or invalid tenant context' });
+      res.status(401).json({ error: tenant ? 'Tenant is not active' : 'Missing or invalid tenant context' });
       return;
     }
 
@@ -44,9 +44,11 @@ function resolveOrgIdFromBearer(req: Request): string | undefined {
     return undefined;
   }
 
-  const match = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!match) return undefined;
-  const token = match[1];
+  const parts = authHeader.trim().split(/\s+/);
+  if (parts.length !== 2) return undefined;
+  const scheme = parts[0];
+  const token = parts[1];
+  if (scheme?.toLowerCase() !== 'bearer') return undefined;
   if (!token) return undefined;
 
   try {

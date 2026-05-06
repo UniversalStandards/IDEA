@@ -1,5 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { readFile, rm } from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import { createTenantMiddleware } from '../src/multitenancy/TenantMiddleware';
 import { NamespaceIsolator, InMemoryKeyValueStore } from '../src/multitenancy/NamespaceIsolator';
 import { TenantManager } from '../src/multitenancy/TenantManager';
@@ -49,6 +51,7 @@ describe('Multitenancy integration', () => {
   let tenantManager: TenantManager;
   let namespaceIsolator: NamespaceIsolator;
   let provisioner: TenantProvisioner;
+  let policyDir: string;
 
   beforeEach(async () => {
     process.env['NODE_ENV'] = 'test';
@@ -58,9 +61,9 @@ describe('Multitenancy integration', () => {
 
     testCounter += 1;
 
-    const storePath = `/tmp/idea-tenant-store-${testCounter}.json`;
-    const configDir = `/tmp/idea-config-${testCounter}`;
-    const policyDir = `/tmp/idea-policies-${testCounter}`;
+    const storePath = path.join(os.tmpdir(), `idea-tenant-store-${testCounter}.json`);
+    const configDir = path.join(os.tmpdir(), `idea-config-${testCounter}`);
+    policyDir = path.join(os.tmpdir(), `idea-policies-${testCounter}`);
 
     await rm(storePath, { force: true });
     await rm(configDir, { recursive: true, force: true });
@@ -165,7 +168,7 @@ describe('Multitenancy integration', () => {
     const configContents = await namespaceIsolator.readTenantConfig('org-c');
     expect(configContents).toContain('orgId: org-c');
 
-    const policyContents = await readFile(`/tmp/idea-policies-${testCounter}/org-c/policy.json`, 'utf8');
+    const policyContents = await readFile(path.join(policyDir, 'org-c', 'policy.json'), 'utf8');
     expect(policyContents).toContain('tenant-default-manage');
   });
 });

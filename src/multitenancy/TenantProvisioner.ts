@@ -5,6 +5,7 @@ import type { NamespaceIsolator } from './NamespaceIsolator';
 import type { TenantManager } from './TenantManager';
 
 const logger = createLogger('tenant-provisioner');
+const PROVISION_SLA_MS = 2_000;
 
 export type TenantProvisionInput = {
   orgId: string;
@@ -46,7 +47,7 @@ export class TenantProvisioner {
       tenant.orgId,
       [
         `orgId: ${tenant.orgId}`,
-        `name: ${tenant.name}`,
+        `name: "${escapeYamlString(tenant.name)}"`,
         'quotas:',
         '  requestsPerMinute: 300',
         '  members: 100',
@@ -75,8 +76,8 @@ export class TenantProvisioner {
     await this.writeDefaultPolicyFile(tenant.orgId);
 
     const durationMs = Date.now() - startedAt;
-    if (durationMs > 2_000) {
-      throw new Error(`Tenant provisioning exceeded SLA (2s): ${durationMs}ms`);
+    if (durationMs > PROVISION_SLA_MS) {
+      logger.warn('Tenant provisioning exceeded SLA', { orgId: tenant.orgId, durationMs, slaMs: PROVISION_SLA_MS });
     }
 
     logger.info('Tenant provisioned', { orgId: tenant.orgId, durationMs });
@@ -119,4 +120,8 @@ export class TenantProvisioner {
 
     await writeFile(path.join(policyDir, 'policy.json'), JSON.stringify(policy, null, 2), 'utf8');
   }
+}
+
+function escapeYamlString(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
 }
