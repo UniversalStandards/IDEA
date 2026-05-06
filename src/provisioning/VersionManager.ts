@@ -4,6 +4,10 @@ import { createLogger } from '../observability/logger';
 
 const logger = createLogger('version-manager');
 
+function sanitizePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.-]+/g, '-');
+}
+
 export type VersionState = 'staged' | 'active' | 'superseded' | 'failed' | 'rolled_back';
 
 export interface VersionRecord {
@@ -34,7 +38,7 @@ export class VersionManager {
   }
 
   prepareInstallDir(serverId: string, version: string): string {
-    const installDir = path.resolve(this.installBaseDir, serverId, version);
+    const installDir = path.resolve(this.installBaseDir, sanitizePathSegment(serverId), sanitizePathSegment(version));
     fs.mkdirSync(installDir, { recursive: true });
     return installDir;
   }
@@ -195,8 +199,12 @@ export class VersionManager {
     this.writeState(state);
   }
 
+  getInstallRoot(serverId: string): string {
+    return path.resolve(this.installBaseDir, sanitizePathSegment(serverId));
+  }
+
   private currentPointerPath(serverId: string): string {
-    return path.resolve(this.installBaseDir, serverId, 'current');
+    return path.resolve(this.getInstallRoot(serverId), 'current');
   }
 
   private writeCurrentPointer(serverId: string, installPath: string): void {

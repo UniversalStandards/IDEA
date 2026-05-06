@@ -290,7 +290,7 @@ export class Installer extends EventEmitter {
   }
 
   async rollback(toolId: string, version?: string): Promise<InstallResult> {
-    const installed = this.installed.get(toolId) ?? this.installed.get(toolId);
+    const installed = this.installed.get(toolId);
     const currentTool = installed?.tool ?? this.runtimeRegistrar.get(toolId)?.tool;
     if (!currentTool) {
       throw new Error(`Tool not installed: ${toolId}`);
@@ -345,7 +345,7 @@ export class Installer extends EventEmitter {
     }
 
     this.runtimeRegistrar.unregister(toolId);
-    const installDir = path.resolve(INSTALL_BASE_DIR, toolId);
+    const installDir = this.versionManager.getInstallRoot(toolId);
     fs.rmSync(installDir, { recursive: true, force: true });
     this.installed.delete(toolId);
 
@@ -468,6 +468,11 @@ export class Installer extends EventEmitter {
     };
   }
 
+  private hasContainerizedFileExtension(value: string): boolean {
+    const containerizedExtensions = new Set(['.js', '.mjs', '.cjs', '.py', '.wasm']);
+    return containerizedExtensions.has(path.extname(value));
+  }
+
   private resolveContainerPath(value: string, installDir: string): string {
     if (!value) {
       return value;
@@ -476,7 +481,7 @@ export class Installer extends EventEmitter {
       const relative = path.relative(installDir, value);
       return relative ? path.posix.join('/workspace', relative) : '/workspace';
     }
-    if (!path.isAbsolute(value) && (value.startsWith('./') || value.startsWith('../') || value.endsWith('.js') || value.endsWith('.mjs') || value.endsWith('.cjs') || value.endsWith('.py') || value.endsWith('.wasm'))) {
+    if (!path.isAbsolute(value) && (value.startsWith('./') || value.startsWith('../') || this.hasContainerizedFileExtension(value))) {
       return path.posix.join('/workspace', value.replace(/\\/g, '/'));
     }
     return value;
