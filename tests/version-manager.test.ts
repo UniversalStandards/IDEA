@@ -31,4 +31,18 @@ describe('VersionManager', () => {
       expect.arrayContaining(['1.0.0', '2.0.0']),
     );
   });
+
+  it('rejects current pointers that escape the managed install root', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'idea-version-manager-'));
+    const manager = new VersionManager({
+      installBaseDir: root,
+      statePath: path.join(root, 'state.json'),
+    });
+
+    manager.stageVersion('tool-a', '1.0.0', '/etc');
+
+    expect(() => manager.activateVersion('tool-a', '1.0.0')).toThrow(
+      'Install path escapes managed install root',
+    );
+  });
 });

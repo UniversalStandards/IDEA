@@ -19,10 +19,39 @@ import { versionManager, type VersionManager, type VersionRecord } from './Versi
 import { DockerSandbox } from './sandbox/DockerSandbox';
 import { WasmSandbox } from './sandbox/WasmSandbox';
 import type { IsolationStrategy, SandboxCommand, SandboxHandle, SandboxSpec } from './sandbox/Sandbox';
+import { z } from 'zod';
 
 const logger = createLogger('installer');
 const INSTALL_BASE_DIR = path.resolve(process.cwd(), '.mcp', 'installed');
 const INSTALL_LOCK_DIR = path.resolve(INSTALL_BASE_DIR, '.locks');
+
+const SandboxCommandSchema = z.object({
+  cmd: z.string(),
+  args: z.array(z.string()),
+  env: z.record(z.string()).optional(),
+  cwd: z.string().optional(),
+});
+
+const SandboxSpecSchema = z.object({
+  toolId: z.string(),
+  version: z.string(),
+  capabilityDir: z.string(),
+  command: SandboxCommandSchema,
+  mounts: z.array(z.object({
+    source: z.string(),
+    target: z.string(),
+    readOnly: z.boolean().optional(),
+  })).optional(),
+  allowedEndpoints: z.array(z.string()).optional(),
+  labels: z.record(z.string()).optional(),
+  image: z.string().optional(),
+  readOnlyRootFs: z.boolean().optional(),
+  resourceLimits: z.object({
+    memoryMb: z.number().optional(),
+    nanoCpus: z.number().optional(),
+    pidsLimit: z.number().optional(),
+  }).optional(),
+});
 
 export interface InstallOptions {
   dryRun?: boolean;
@@ -115,6 +144,7 @@ export class Installer extends EventEmitter {
   private readonly wasmSandbox: IsolationStrategy;
   private readonly hotReloader: HotReloader;
   private readonly dryRunExecutor: DryRunExecutor;
+  private readonly activeLockReleases = new Map<string, () => void>();
 
   constructor(dependencies: InstallerDependencies = {}) {
     super();
@@ -143,6 +173,12 @@ export class Installer extends EventEmitter {
 
     fs.mkdirSync(INSTALL_BASE_DIR, { recursive: true });
     fs.mkdirSync(INSTALL_LOCK_DIR, { recursive: true });
+    process.once('exit', () => {
+      for (const release of this.activeLockReleases.values()) {
+        release();
+      }
+      this.activeLockReleases.clear();
+    });
   }
 
   async install(tool: ToolMetadata, options: InstallOptions = {}): Promise<InstallResult> {
@@ -471,7 +507,11 @@ export class Installer extends EventEmitter {
     return {
       ...command,
       cwd,
-      args: command.args.map((arg) => this.resolveContainerPath(arg, installDir)),
+      args: command.args.map((arg) =>
+        this.shouldResolveContainerPath(arg, installDir)
+          ? this.resolveContainerPath(arg, installDir)
+          : arg,
+      ),
     };
   }
 
@@ -492,6 +532,20 @@ export class Installer extends EventEmitter {
       return path.posix.join('/workspace', value.replace(/\\/g, '/'));
     }
     return value;
+  }
+
+  private shouldResolveContainerPath(value: string, installDir: string): boolean {
+    if (!value || value.startsWith('-')) {
+      return false;
+    }
+    if (path.isAbsolute(value)) {
+      return value.startsWith(installDir);
+    }
+    return value.startsWith('./')
+      || value.startsWith('../')
+      || value.includes('/')
+      || value.includes('\\')
+      || this.hasContainerizedFileExtension(value);
   }
 
   private resolveRuntimeCommand(tool: ToolMetadata): SandboxCommand {
@@ -530,12 +584,62 @@ export class Installer extends EventEmitter {
   }
 
   private parseCommand(command: string): SandboxCommand {
-    const parts = command.trim().split(/\s+/);
+    const parts = this.tokenizeCommand(command);
     const cmd = parts.shift();
     if (!cmd) {
       throw new Error('Runtime command is empty');
     }
     return { cmd, args: parts };
+  }
+
+  private tokenizeCommand(command: string): string[] {
+    const tokens: string[] = [];
+    let current = '';
+    let quote: '"' | "'" | null = null;
+    let escaping = false;
+
+    for (const char of command.trim()) {
+      if (escaping) {
+        current += char;
+        escaping = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaping = true;
+        continue;
+      }
+      if (quote) {
+        if (char === quote) {
+          quote = null;
+        } else {
+          current += char;
+        }
+        continue;
+      }
+      if (char === '"' || char === '\'') {
+        quote = char;
+        continue;
+      }
+      if (/\s/.test(char)) {
+        if (current) {
+          tokens.push(current);
+          current = '';
+        }
+        continue;
+      }
+      current += char;
+    }
+
+    if (quote) {
+      throw new Error(`Runtime command contains an unterminated ${quote} quote`);
+    }
+    if (escaping) {
+      current += '\\';
+    }
+    if (current) {
+      tokens.push(current);
+    }
+    return tokens;
   }
 
   private primaryPackageName(tool: ToolMetadata): string {
@@ -556,22 +660,7 @@ export class Installer extends EventEmitter {
   }
 
   private isSandboxSpec(value: unknown): value is SandboxSpec {
-    if (typeof value !== 'object' || value === null) {
-      return false;
-    }
-
-    const record = value as Record<string, unknown>;
-    const command = record['command'];
-    if (typeof command !== 'object' || command === null) {
-      return false;
-    }
-
-    const commandRecord = command as Record<string, unknown>;
-    return typeof record['toolId'] === 'string'
-      && typeof record['version'] === 'string'
-      && typeof record['capabilityDir'] === 'string'
-      && typeof commandRecord['cmd'] === 'string'
-      && Array.isArray(commandRecord['args']);
+    return SandboxSpecSchema.safeParse(value).success;
   }
 
   private async prepareInstallDirectory(tool: ToolMetadata, installDir: string): Promise<void> {
@@ -609,11 +698,18 @@ export class Installer extends EventEmitter {
 
     for (;;) {
       try {
-        const fd = fs.openSync(lockPath, 'wx');
-        return () => {
-          fs.closeSync(fd);
+        fs.writeFileSync(lockPath, `${process.pid}\n`, { flag: 'wx' });
+        let released = false;
+        const release = (): void => {
+          if (released) {
+            return;
+          }
+          released = true;
+          this.activeLockReleases.delete(lockPath);
           fs.rmSync(lockPath, { force: true });
         };
+        this.activeLockReleases.set(lockPath, release);
+        return release;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (!message.includes('EEXIST')) {

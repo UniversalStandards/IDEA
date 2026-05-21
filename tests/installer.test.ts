@@ -167,4 +167,52 @@ describe('Installer', () => {
     expect(dockerSandbox.execute).toHaveBeenCalled();
     expect(dockerSandbox.provision).toHaveBeenCalled();
   });
+
+  it('preserves quoted runtime arguments while only containerizing path-like values', async () => {
+    const dockerSandbox = createSandbox('docker');
+    const runtimeRegistrar = { register: jest.fn(), list: jest.fn(() => []), get: jest.fn(), unregister: jest.fn() };
+    const hotReloader = new HotReloader(runtimeRegistrar as never);
+    const verification: VerificationSummary = {
+      verified: true,
+      packages: [
+        {
+          name: 'secure-tool',
+          requestedVersion: '1.0.0',
+          resolvedVersion: '1.0.0',
+          spec: 'secure-tool@1.0.0',
+          manager: 'npm',
+          verified: true,
+          method: 'npm-provenance',
+          metadata: {},
+        },
+      ],
+    };
+
+    const quotedTool: ToolMetadata = {
+      ...tool,
+      metadata: {
+        packageName: 'secure-tool',
+        runtimeCommand: 'node "./server path.js" --mode "safe mode"',
+      },
+    };
+
+    const installer = new Installer({
+      verifier: { verifyTool: jest.fn(async () => verification) } as never,
+      dockerSandbox,
+      runtimeRegistrar,
+      hotReloader,
+      dependencyResolver: { resolve: jest.fn(() => ({ packages: ['secure-tool@1.0.0'], conflicts: [], installOrder: ['secure-tool@1.0.0'] })) },
+      configGenerator: { generate: jest.fn(() => ({ env: {}, args: [], workingDir: '/tmp', timeout: 1000 })) },
+    });
+
+    const result = await installer.install(quotedTool);
+
+    expect(result.success).toBe(true);
+    expect(dockerSandbox.provision).toHaveBeenCalledWith(expect.objectContaining({
+      command: expect.objectContaining({
+        cmd: 'node',
+        args: expect.arrayContaining(['/workspace/server path.js', '--mode', 'safe mode']),
+      }),
+    }));
+  });
 });

@@ -8,6 +8,11 @@ function sanitizePathSegment(value: string): string {
   return value.replace(/[^a-zA-Z0-9_.-]+/g, '-');
 }
 
+function isPathWithin(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
 export type VersionState = 'staged' | 'active' | 'superseded' | 'failed' | 'rolled_back';
 
 export interface VersionRecord {
@@ -209,6 +214,10 @@ export class VersionManager {
 
   private writeCurrentPointer(serverId: string, installPath: string): void {
     const pointer = this.currentPointerPath(serverId);
+    const normalizedInstallPath = path.resolve(installPath);
+    if (!isPathWithin(this.installBaseDir, normalizedInstallPath)) {
+      throw new Error(`Install path escapes managed install root: ${installPath}`);
+    }
     fs.mkdirSync(path.dirname(pointer), { recursive: true });
 
     try {
@@ -221,14 +230,18 @@ export class VersionManager {
     }
 
     try {
-      fs.symlinkSync(installPath, pointer, 'dir');
+      fs.symlinkSync(
+        normalizedInstallPath,
+        pointer,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
     } catch (error) {
       logger.warn('Falling back to file-based current pointer', {
         serverId,
-        installPath,
+        installPath: normalizedInstallPath,
         error: error instanceof Error ? error.message : String(error),
       });
-      fs.writeFileSync(pointer, installPath, 'utf8');
+      fs.writeFileSync(pointer, normalizedInstallPath, 'utf8');
     }
   }
 
