@@ -54,6 +54,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "axios": "^1.15.0",
     "cors": "^2.8.6",
+    "dockerode": "^5.0.0",
     "dotenv": "^16.4.5",
     "express": "^5.2.1",
     "express-rate-limit": "^8.3.2",
@@ -62,6 +63,7 @@
     "node-cache": "^5.1.2",
     "p-queue": "^8.0.1",
     "semver": "^7.7.4",
+    "sigstore": "^4.1.0",
     "uuid": "^11.0.3",
     "winston": "^3.19.0",
     "winston-daily-rotate-file": "^5.0.0",
@@ -69,6 +71,7 @@
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
+    "@types/dockerode": "^4.0.1",
     "@types/express": "^5.0.6",
     "@types/jest": "^29.5.14",
     "@types/jsonwebtoken": "^9.0.9",

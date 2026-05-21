@@ -1,9 +1,9 @@
-import { ChildProcess, spawn } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
 import { auditLogger } from '../security/audit';
-import { ToolMetadata } from '../discovery/types';
-import { ToolRuntimeConfig } from './config-generator';
+import type { ToolMetadata } from '../discovery/types';
+import type { ToolRuntimeConfig } from './config-generator';
 
 const logger = createLogger('runtime-registrar');
 
@@ -12,9 +12,9 @@ export interface RegisteredTool {
   config: ToolRuntimeConfig;
   registeredAt: Date;
   status: 'registered' | 'running' | 'stopped' | 'error';
-  process?: ChildProcess;
-  pid?: number;
-  errorMessage?: string;
+  process: ChildProcess | undefined;
+  pid: number | undefined;
+  errorMessage: string | undefined;
 }
 
 export class RuntimeRegistrar {
@@ -34,6 +34,9 @@ export class RuntimeRegistrar {
       config,
       registeredAt: new Date(),
       status: 'registered',
+      process: undefined,
+      pid: undefined,
+      errorMessage: undefined,
     };
 
     this.registry.set(tool.id, entry);
