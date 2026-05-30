@@ -61,6 +61,9 @@ function mapToolSourceForTrust(
   source: ToolMetadata['source'],
 ): 'official_registry' | 'github' | 'enterprise' | 'local' | 'unknown' {
   if (source === 'official') return 'official_registry';
+  if (source === 'npm' || source === 'pypi' || source === 'dockerhub' || source === 'smithery' || source === 'mcprun') {
+    return 'unknown';
+  }
   return source;
 }
 

@@ -68,8 +68,6 @@ function repoToToolMetadata(repo: GithubRepo): ToolMetadata {
     source: 'github',
     registryUrl: repo.html_url,
     repository: repo.clone_url,
-    installCommand: undefined,
-    entryPoint: undefined,
     capabilities,
     tags,
     author: owner,

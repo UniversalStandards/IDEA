@@ -1,9 +1,15 @@
 import { config } from '../config';
+import { RedisSwrCache } from '../cache/redis-swr-cache';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
 import { GithubRegistry } from './github-registry';
 import { OfficialRegistry } from './official-registry';
 import { LocalScanner } from './local-scanner';
+import { DockerHubRegistry } from './registries/DockerHubRegistry';
+import { McpRunRegistry } from './registries/McpRunRegistry';
+import { NpmRegistry } from './registries/NpmRegistry';
+import { PypiRegistry } from './registries/PypiRegistry';
+import { SmitheryRegistry } from './registries/SmitheryRegistry';
 import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
 
 const logger = createLogger('registry-manager');
@@ -11,25 +17,46 @@ const logger = createLogger('registry-manager');
 const SOURCE_TRUST_ORDER: Record<ToolMetadata['source'], number> = {
   official: 4,
   enterprise: 3,
+  smithery: 3,
   github: 2,
+  npm: 2,
+  pypi: 2,
+  dockerhub: 2,
+  mcprun: 2,
   local: 1,
   unknown: 0,
 };
+
+const SEARCH_TIMEOUT_MS = 2_500;
+
+function extractNormalizedId(tool: ToolMetadata): string {
+  const metadata = tool.metadata ?? {};
+
+  const packageNameFromMetadata =
+    typeof metadata['packageName'] === 'string' ? metadata['packageName'] : undefined;
+  const packageIdFromMetadata =
+    typeof metadata['packageId'] === 'string' ? metadata['packageId'] : undefined;
+
+  const sourceId = tool.id.includes(':') ? tool.id.split(':').slice(1).join(':') : tool.id;
+  const candidate = packageNameFromMetadata ?? packageIdFromMetadata ?? sourceId ?? tool.name;
+  return candidate.toLowerCase().replace(/^@/, '').replace(/[^a-z0-9/._-]+/g, '');
+}
 
 function deduplicate(tools: ToolMetadata[]): ToolMetadata[] {
   const seen = new Map<string, ToolMetadata>();
 
   for (const tool of tools) {
-    const existing = seen.get(tool.id);
+    const normalizedId = extractNormalizedId(tool);
+    const existing = seen.get(normalizedId);
     if (!existing) {
-      seen.set(tool.id, tool);
+      seen.set(normalizedId, tool);
       continue;
     }
     // Keep the higher-trust source
     const existingTrust = SOURCE_TRUST_ORDER[existing.source] ?? 0;
     const newTrust = SOURCE_TRUST_ORDER[tool.source] ?? 0;
-    if (newTrust > existingTrust) {
-      seen.set(tool.id, tool);
+    if (newTrust > existingTrust || (newTrust === existingTrust && (tool.downloadCount ?? 0) > (existing.downloadCount ?? 0))) {
+      seen.set(normalizedId, tool);
     }
   }
 
@@ -65,6 +92,11 @@ function sortByTrustAndRelevance(tools: ToolMetadata[], query?: string): ToolMet
 
 export class RegistryManager {
   private readonly registries: Map<string, Registry> = new Map();
+  private readonly searchCache = new RedisSwrCache({
+    namespace: 'registry-search',
+    ttlSeconds: 900,
+    staleSeconds: 900,
+  });
 
   registerRegistry(registry: Registry): void {
     this.registries.set(registry.name, registry);
@@ -82,9 +114,7 @@ export class RegistryManager {
 
     const available = await this.getAvailableRegistries();
 
-    const resultsArrays = await Promise.allSettled(
-      available.map((r) => r.search(options)),
-    );
+    const resultsArrays = await Promise.allSettled(available.map((r) => this.searchWithCache(r, options)));
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < resultsArrays.length; i++) {
@@ -123,7 +153,9 @@ export class RegistryManager {
   async getById(id: string): Promise<ToolMetadata | null> {
     const available = await this.getAvailableRegistries();
 
-    const results = await Promise.allSettled(available.map((r) => r.getById(id)));
+    const results = await Promise.allSettled(
+      available.map((r) => this.withTimeout(r.getById(id), `resolve:${r.name}:${id}`)),
+    );
 
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value !== null) {
@@ -137,7 +169,9 @@ export class RegistryManager {
   async listAll(): Promise<ToolMetadata[]> {
     const available = await this.getAvailableRegistries();
 
-    const results = await Promise.allSettled(available.map((r) => r.list()));
+    const results = await Promise.allSettled(
+      available.map((r) => this.withTimeout(r.list(), `list:${r.name}`)),
+    );
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < results.length; i++) {
@@ -180,7 +214,19 @@ export class RegistryManager {
   private async getAvailableRegistries(): Promise<Registry[]> {
     const candidates = Array.from(this.registries.values());
 
-    const checks = await Promise.allSettled(candidates.map((r) => r.isAvailable()));
+    const checks = await Promise.allSettled(
+      candidates.map((r) => {
+        const maybeHealth = (
+          r as Registry & { healthCheck?: () => Promise<boolean> }
+        ).healthCheck;
+
+        if (typeof maybeHealth === 'function') {
+          return this.withTimeout(maybeHealth.call(r), `health:${r.name}`);
+        }
+
+        return this.withTimeout(r.isAvailable(), `available:${r.name}`);
+      }),
+    );
 
     const available: Registry[] = [];
     for (let i = 0; i < checks.length; i++) {
@@ -203,6 +249,28 @@ export class RegistryManager {
   listRegistries(): string[] {
     return Array.from(this.registries.keys());
   }
+
+  private searchWithCache(registry: Registry, options: RegistrySearchOptions): Promise<ToolMetadata[]> {
+    const cacheKey = `${registry.name}:${JSON.stringify(options)}`;
+    return this.searchCache.getOrSet(cacheKey, () =>
+      this.withTimeout(registry.search(options), `search:${registry.name}`),
+    );
+  }
+
+  private async withTimeout<T>(promise: Promise<T>, key: string): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Registry operation timed out: ${key}`));
+      }, SEARCH_TIMEOUT_MS);
+
+      promise
+        .then((result) => resolve(result))
+        .catch((err) => reject(err))
+        .finally(() => {
+          clearTimeout(timer);
+        });
+    });
+  }
 }
 
 function buildRegistryManager(): RegistryManager {
@@ -211,15 +279,30 @@ function buildRegistryManager(): RegistryManager {
   let enableGithub = true;
   let enableOfficial = true;
   let enableLocal = true;
+  let enableNpm = true;
+  let enablePypi = true;
+  let enableDockerHub = true;
+  let enableSmithery = true;
+  let enableMcpRun = true;
 
   try {
     enableGithub = config.ENABLE_GITHUB_REGISTRY;
     enableOfficial = config.ENABLE_OFFICIAL_MCP_REGISTRY;
     enableLocal = config.ENABLE_LOCAL_WORKSPACE_SCAN;
+    enableNpm = process.env['ENABLE_NPM_REGISTRY'] !== 'false';
+    enablePypi = process.env['ENABLE_PYPI_REGISTRY'] !== 'false';
+    enableDockerHub = process.env['ENABLE_DOCKERHUB_REGISTRY'] !== 'false';
+    enableSmithery = process.env['ENABLE_SMITHERY_REGISTRY'] !== 'false';
+    enableMcpRun = process.env['ENABLE_MCPRUN_REGISTRY'] !== 'false';
   } catch {
     enableGithub = process.env['ENABLE_GITHUB_REGISTRY'] !== 'false';
     enableOfficial = process.env['ENABLE_OFFICIAL_MCP_REGISTRY'] !== 'false';
     enableLocal = process.env['ENABLE_LOCAL_WORKSPACE_SCAN'] !== 'false';
+    enableNpm = process.env['ENABLE_NPM_REGISTRY'] !== 'false';
+    enablePypi = process.env['ENABLE_PYPI_REGISTRY'] !== 'false';
+    enableDockerHub = process.env['ENABLE_DOCKERHUB_REGISTRY'] !== 'false';
+    enableSmithery = process.env['ENABLE_SMITHERY_REGISTRY'] !== 'false';
+    enableMcpRun = process.env['ENABLE_MCPRUN_REGISTRY'] !== 'false';
   }
 
   if (enableOfficial) {
@@ -235,6 +318,31 @@ function buildRegistryManager(): RegistryManager {
   if (enableLocal) {
     manager.registerRegistry(new LocalScanner());
     logger.info('Local workspace scanner enabled');
+  }
+
+  if (enableNpm) {
+    manager.registerRegistry(new NpmRegistry());
+    logger.info('npm registry enabled');
+  }
+
+  if (enablePypi) {
+    manager.registerRegistry(new PypiRegistry());
+    logger.info('PyPI registry enabled');
+  }
+
+  if (enableDockerHub) {
+    manager.registerRegistry(new DockerHubRegistry());
+    logger.info('Docker Hub registry enabled');
+  }
+
+  if (enableSmithery) {
+    manager.registerRegistry(new SmitheryRegistry());
+    logger.info('Smithery registry enabled');
+  }
+
+  if (enableMcpRun) {
+    manager.registerRegistry(new McpRunRegistry());
+    logger.info('mcp.run registry enabled');
   }
 
   return manager;
