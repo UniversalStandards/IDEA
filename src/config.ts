@@ -105,6 +105,7 @@ const ConfigSchema = z.object({
   MAX_CONCURRENT_INSTALLS: intEnv(5, 1, 100),
   ENABLE_AUTO_UPDATES: boolEnv(false),
   ENABLE_RUNTIME_HEALTH_RECOVERY: boolEnv(true),
+  SPECULATION_ENABLED: boolEnv(false),
 
   // Redis (future distributed caching)
   REDIS_URL: z.string().url().optional(),

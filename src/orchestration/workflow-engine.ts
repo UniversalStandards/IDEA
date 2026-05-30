@@ -2,6 +2,8 @@ import { EventEmitter } from 'events';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
+import { SpeculativeExecutor, type PredictedAction } from '../routing/SpeculativeExecutor';
+import { config } from '../config';
 
 const logger = createLogger('workflow-engine');
 
@@ -49,6 +51,24 @@ export class WorkflowEngine extends EventEmitter {
   private readonly workflows = new Map<string, Workflow>();
   private readonly runHistory: WorkflowRunResult[] = [];
   private readonly MAX_HISTORY = 500;
+  private readonly speculativeExecutor: SpeculativeExecutor;
+  private readonly actionExecutor:
+    | ((action: string, params: Record<string, unknown>) => Promise<unknown>)
+    | undefined;
+
+  constructor(options?: {
+    speculativeExecutor?: SpeculativeExecutor;
+    actionExecutor?: (action: string, params: Record<string, unknown>) => Promise<unknown>;
+  }) {
+    super();
+    this.actionExecutor = options?.actionExecutor;
+    this.speculativeExecutor = options?.speculativeExecutor ?? new SpeculativeExecutor({
+      enabled: config.SPECULATION_ENABLED,
+      executor: async (action, params): Promise<unknown> => this.dispatchAction(action, params),
+      predictor: async (context): Promise<PredictedAction[]> => this.defaultPredict(context.nextActions),
+      isPrefetchable: (action): boolean => action === 'noop' || action === 'sleep',
+    });
+  }
 
   registerWorkflow(wf: Workflow): void {
     this.workflows.set(wf.id, wf);
@@ -92,7 +112,7 @@ export class WorkflowEngine extends EventEmitter {
       startedAt,
       success: false,
       stepResults: {},
-      input,
+      ...(input ? { input } : {}),
     };
 
     try {
@@ -120,7 +140,7 @@ export class WorkflowEngine extends EventEmitter {
     return run;
   }
 
-  emit(event: string, data?: unknown): boolean {
+  override emit(event: string, data?: unknown): boolean {
     logger.debug('Workflow engine event', { event });
     return super.emit(event, data);
   }
@@ -150,6 +170,14 @@ export class WorkflowEngine extends EventEmitter {
       const step = wf.steps.find((s) => s.id === currentStepId);
       if (!step) break;
 
+      const speculationPromise = this.speculativeExecutor.start({
+        workflowId: wf.id,
+        stepId: step.id,
+        action: step.action,
+        params: step.params ?? {},
+        nextActions: this.predictNextActions(wf, step),
+      });
+
       const stepResult = await this.executeStep(step, input, run.stepResults);
       run.stepResults[step.id] = stepResult;
 
@@ -162,7 +190,63 @@ export class WorkflowEngine extends EventEmitter {
           throw new Error(`Step ${step.id} (${step.name}) failed: ${stepResult.error}`);
         }
       }
+
+      if (currentStepId) {
+        const nextStep = wf.steps.find((candidate) => candidate.id === currentStepId);
+        if (nextStep) {
+          const session = await speculationPromise;
+          if (session) {
+            const consumed = await this.speculativeExecutor.consume(
+              { action: nextStep.action, params: nextStep.params ?? {} },
+              session.predicted,
+            );
+            if (consumed.outcome === 'hit' && consumed.cached) {
+              run.stepResults[nextStep.id] = {
+                stepId: nextStep.id,
+                success: true,
+                output: consumed.cached.result,
+              };
+              currentStepId = nextStep.onSuccess ?? this.nextStepId(wf, nextStep.id);
+            }
+          }
+        }
+      }
     }
+  }
+
+  private defaultPredict(candidates: PredictedAction[]): PredictedAction[] {
+    return candidates.slice(0, 2);
+  }
+
+  private predictNextActions(wf: Workflow, step: WorkflowStep): PredictedAction[] {
+    const predictions: PredictedAction[] = [];
+
+    const successStepId = step.onSuccess ?? this.nextStepId(wf, step.id);
+    if (successStepId) {
+      const successStep = wf.steps.find((candidate) => candidate.id === successStepId);
+      if (successStep) {
+        predictions.push({
+          stepId: successStep.id,
+          action: successStep.action,
+          params: successStep.params ?? {},
+          confidence: 0.7,
+        });
+      }
+    }
+
+    if (step.onFailure) {
+      const failureStep = wf.steps.find((candidate) => candidate.id === step.onFailure);
+      if (failureStep) {
+        predictions.push({
+          stepId: failureStep.id,
+          action: failureStep.action,
+          params: failureStep.params ?? {},
+          confidence: 0.3,
+        });
+      }
+    }
+
+    return predictions;
   }
 
   private nextStepId(wf: Workflow, currentId: string): string | undefined {
@@ -192,6 +276,10 @@ export class WorkflowEngine extends EventEmitter {
     action: string,
     params: Record<string, unknown>,
   ): Promise<unknown> {
+    if (this.actionExecutor) {
+      return this.actionExecutor(action, params);
+    }
+
     // Extensible action dispatcher
     switch (action) {
       case 'log':

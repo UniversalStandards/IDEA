@@ -32,6 +32,7 @@ describe('Config', () => {
     expect(cfg.RATE_LIMIT_MAX_REQUESTS).toBe(300);
     expect(cfg.COST_TRACKING_ENABLED).toBe(true);
     expect(cfg.COST_BUDGET_DAILY_USD).toBe(0);
+    expect(cfg.SPECULATION_ENABLED).toBe(false);
   });
 
   it('parses PORT from environment', () => {
@@ -66,6 +67,12 @@ describe('Config', () => {
     process.env['ENABLE_TRACING'] = 'true';
     const cfg = validateConfig();
     expect(cfg.ENABLE_TRACING).toBe(true);
+  });
+
+  it('parses SPECULATION_ENABLED feature flag', () => {
+    process.env['SPECULATION_ENABLED'] = 'true';
+    const cfg = validateConfig();
+    expect(cfg.SPECULATION_ENABLED).toBe(true);
   });
 
   it('accepts wildcard CORS_ORIGIN', () => {
@@ -109,7 +116,7 @@ describe('Config', () => {
   });
 
   it('rejects invalid MCP_TRANSPORT value', () => {
-    process.env['MCP_TRANSPORT'] = 'websocket';
+    process.env['MCP_TRANSPORT'] = 'invalid-transport';
     expect(() => validateConfig()).toThrow('Configuration validation failed');
   });
 
