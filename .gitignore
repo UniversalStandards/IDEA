@@ -32,6 +32,8 @@ pnpm-debug.log*
 # Runtime data — generated at process start, should not be committed
 runtime/
 cache/
+!src/cache/
+!src/cache/**
 plugins/
 
 # Audit log (written by audit.ts at runtime)
