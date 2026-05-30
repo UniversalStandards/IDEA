@@ -24,7 +24,7 @@ export class HttpClient {
   private readonly fetchImpl: typeof fetch;
 
   public constructor(baseUrl: string, auth: AuthClient, fetchImpl?: typeof fetch) {
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.baseUrl = HttpClient.trimTrailingSlashes(baseUrl);
     this.auth = auth;
     this.fetchImpl = fetchImpl ?? fetch;
   }
@@ -108,5 +108,13 @@ export class HttpClient {
 
     const text = await response.text();
     return { message: text };
+  }
+
+  private static trimTrailingSlashes(value: string): string {
+    let normalized = value;
+    while (normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
   }
 }

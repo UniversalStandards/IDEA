@@ -31,7 +31,7 @@ export class AuthClient {
   private refreshTimer: ReturnType<typeof setTimeout> | undefined;
 
   public constructor(options: AuthClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, '');
+    this.baseUrl = AuthClient.trimTrailingSlashes(options.baseUrl);
     this.apiKey = options.apiKey;
     this.oauth = options.oauth;
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -142,5 +142,13 @@ export class AuthClient {
     this.refreshTimer = setTimeout(() => {
       void this.refreshJwt();
     }, delayMs);
+  }
+
+  private static trimTrailingSlashes(value: string): string {
+    let normalized = value;
+    while (normalized.endsWith('/')) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
   }
 }
