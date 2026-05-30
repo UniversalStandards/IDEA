@@ -1,7 +1,6 @@
-import { randomBytes, randomUUID } from 'crypto';
+import { randomBytes, randomUUID, scryptSync } from 'crypto';
 import { secretStore, type SecretStore } from '../secret-store';
 import { auditLog } from '../audit';
-import { sha256Hex } from './x509-utils';
 
 const PREFIX = 'api-key:';
 
@@ -12,7 +11,7 @@ export interface ApiKeyRecord {
   createdAt: string;
   expiresAt: string;
   revokedAt?: string;
-  activeSecretHashes: Array<{ hash: string; validUntil?: string }>;
+  activeSecretHashes: Array<{ hash: string; salt: string; validUntil?: string }>;
 }
 
 export interface CreatedApiKey {
@@ -50,7 +49,7 @@ export class ApiKeyLifecycle {
       scopes,
       createdAt: new Date().toISOString(),
       expiresAt,
-      activeSecretHashes: [{ hash: sha256Hex(secret) }],
+      activeSecretHashes: [this.hashSecret(secret)],
     };
 
     this.store.set(this.recordKey(id), JSON.stringify(record));
@@ -72,7 +71,7 @@ export class ApiKeyLifecycle {
       }
     }
 
-    record.activeSecretHashes.push({ hash: sha256Hex(newSecret) });
+    record.activeSecretHashes.push(this.hashSecret(newSecret));
     this.store.set(this.recordKey(id), JSON.stringify(record));
 
     this.logger.record('api_key.rotate', record.owner, id, 'success', undefined, { overlapSeconds });
@@ -101,10 +100,14 @@ export class ApiKeyLifecycle {
     if (record.revokedAt) return undefined;
     if (Date.now() > new Date(record.expiresAt).getTime()) return undefined;
 
-    const secretHash = sha256Hex(secret);
+    const secretHashCandidates = record.activeSecretHashes.map((entry) => ({
+      hash: this.hashSecret(secret, entry.salt).hash,
+      salt: entry.salt,
+    }));
     const now = Date.now();
     const hasActiveHash = record.activeSecretHashes.some((entry) => {
-      if (entry.hash !== secretHash) return false;
+      const candidate = secretHashCandidates.find((value) => value.salt === entry.salt);
+      if (!candidate || entry.hash !== candidate.hash) return false;
       if (!entry.validUntil) return true;
       return now <= new Date(entry.validUntil).getTime();
     });
@@ -149,5 +152,11 @@ export class ApiKeyLifecycle {
   private ensureActive(record: ApiKeyRecord): void {
     if (record.revokedAt) throw new Error('API key has been revoked');
     if (Date.now() > new Date(record.expiresAt).getTime()) throw new Error('API key has expired');
+  }
+
+  private hashSecret(secret: string, existingSalt?: string): { hash: string; salt: string } {
+    const salt = existingSalt ?? randomBytes(16).toString('hex');
+    const hash = scryptSync(secret, salt, 32).toString('hex');
+    return { hash, salt };
   }
 }
