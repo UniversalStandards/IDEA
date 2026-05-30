@@ -33,6 +33,8 @@ pnpm-debug.log*
 runtime/
 cache/
 plugins/
+!src/plugins/
+!src/plugins/**
 
 # Audit log (written by audit.ts at runtime)
 audit.log
