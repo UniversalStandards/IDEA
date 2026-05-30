@@ -11,6 +11,11 @@ import { adminRouter } from '../api/admin-api';
 import { createRestAdapter } from '../adapters/rest/index';
 import { createHttpRateLimitMiddleware } from './middleware/rateLimit';
 import type { ITransport } from './index';
+import { createWebhookRouter } from '../api/webhooks/WebhookRouter';
+import { createSseRouter } from '../api/streaming/SseRouter';
+import { WsRouter } from '../api/streaming/WsRouter';
+import { versionMiddleware } from '../api/versioning/VersionMiddleware';
+import { createTenantRouter } from '../api/tenant/TenantRouter';
 
 const logger = createLogger('http-transport');
 const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 10_000;
@@ -30,10 +35,23 @@ export class HttpTransport implements ITransport {
   private initialized = false;
   private fallbackHandlersAttached = false;
   private readonly port: number;
+  private readonly webhookRouter: express.Router;
+  private readonly streamRouter: express.Router;
+  private readonly tenantRouter: express.Router;
+  private readonly wsRouter: WsRouter;
 
   constructor(private readonly options: HttpTransportOptions) {
     this.name = options.mode ?? 'http';
     this.port = options.port ?? options.config.PORT;
+    this.webhookRouter = createWebhookRouter();
+    this.streamRouter = createSseRouter({ jwtSecret: options.config.JWT_SECRET });
+    this.tenantRouter = createTenantRouter({ jwtSecret: options.config.JWT_SECRET });
+    this.wsRouter = new WsRouter({
+      handlerOptions: {
+        jwtSecret: options.config.JWT_SECRET,
+        path: '/api/v1/ws',
+      },
+    });
   }
 
   async initialize(): Promise<void> {
@@ -68,6 +86,11 @@ export class HttpTransport implements ITransport {
     this.options.app.use('/health', healthRouter);
     this.options.app.use('/status', statusRouter);
     this.options.app.use('/admin', adminRouter);
+    this.options.app.use('/api', versionMiddleware);
+    this.options.app.use('/api/v1', this.webhookRouter);
+    this.options.app.use('/api/v1', this.streamRouter);
+    this.options.app.use('/api/v1', this.wsRouter.router);
+    this.options.app.use('/api/v1', this.tenantRouter);
     createRestAdapter(this.options.app);
 
     this.initialized = true;
@@ -107,6 +130,10 @@ export class HttpTransport implements ITransport {
             this.options.app(request as never, response as never);
           })
         : http.createServer(this.options.app);
+
+    if (this.name === 'http') {
+      this.wsRouter.attach(this.server as http.Server);
+    }
 
     await new Promise<void>((resolve, reject) => {
       const server = this.server;
