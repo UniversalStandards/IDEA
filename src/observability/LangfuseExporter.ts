@@ -1,4 +1,3 @@
-import { Langfuse } from 'langfuse';
 import { createLogger } from './logger';
 
 const logger = createLogger('langfuse-exporter');
@@ -33,17 +32,14 @@ export interface LangfuseExporterOptions {
 export class LangfuseExporter {
   private readonly queue: LlmTraceEvent[] = [];
   private readonly flushIntervalMs: number;
-  private readonly client: LangfuseClient;
-  private flushTimer?: NodeJS.Timeout;
+  private client: LangfuseClient | undefined;
+  private flushTimer: NodeJS.Timeout | undefined;
+  private readonly options: LangfuseExporterOptions;
 
   constructor(options: LangfuseExporterOptions, client?: LangfuseClient) {
+    this.options = options;
     this.flushIntervalMs = options.flushIntervalMs ?? 5_000;
-    this.client = client ?? (new Langfuse({
-      publicKey: options.publicKey,
-      secretKey: options.secretKey,
-      baseUrl: options.baseUrl,
-      enabled: true,
-    }) as unknown as LangfuseClient);
+    this.client = client;
     this.flushTimer = setInterval(() => {
       void this.flush();
     }, this.flushIntervalMs);
@@ -59,11 +55,12 @@ export class LangfuseExporter {
 
   async flush(): Promise<void> {
     if (this.queue.length === 0) return;
+    const client = await this.getClient();
     const batch = this.queue.splice(0, this.queue.length);
 
     for (const entry of batch) {
       try {
-        const trace = this.client.trace({
+        const trace = client.trace({
           id: entry.traceId,
           name: `${entry.orgId}:${entry.model}`,
           userId: entry.userId,
@@ -96,7 +93,7 @@ export class LangfuseExporter {
       }
     }
 
-    await this.client.flushAsync?.();
+    await client.flushAsync?.();
   }
 
   async shutdown(): Promise<void> {
@@ -105,6 +102,29 @@ export class LangfuseExporter {
       this.flushTimer = undefined;
     }
     await this.flush();
-    await this.client.shutdownAsync?.();
+    await this.client?.shutdownAsync?.();
+  }
+
+  private async getClient(): Promise<LangfuseClient> {
+    if (this.client) {
+      return this.client;
+    }
+
+    const { Langfuse } = await import('langfuse');
+    const langfuseOptions: {
+      publicKey: string;
+      secretKey: string;
+      enabled: true;
+      baseUrl?: string;
+    } = {
+      publicKey: this.options.publicKey,
+      secretKey: this.options.secretKey,
+      enabled: true,
+    };
+    if (this.options.baseUrl !== undefined) {
+      langfuseOptions.baseUrl = this.options.baseUrl;
+    }
+    this.client = new Langfuse(langfuseOptions) as unknown as LangfuseClient;
+    return this.client;
   }
 }
