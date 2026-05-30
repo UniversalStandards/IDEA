@@ -352,3 +352,5 @@ export interface WorkflowState {
   readonly updatedAt: Date;
   readonly error?: string;
 }
+
+export * from './streaming.types';
