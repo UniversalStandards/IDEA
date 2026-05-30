@@ -132,7 +132,7 @@ describe('Policy governance modules', () => {
     expect(second.allowed).toBe(false);
 
     const quotas = new QuotaManager();
-    quotas.configureOrg('org-1', { callsPerDay: 1 });
+    quotas.configureOrg('org-1', { callsPerDay: 2 });
 
     const exceededEvents: Array<{ orgId: string; reason: string }> = [];
     quotas.on('quota.exceeded', (event) => {

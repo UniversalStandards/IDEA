@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
+import { OrgQuotaConfigStore } from './QuotaConfig';
 
 export const RateLimitDescriptorSchema = z.object({
   windowMs: z.number().int().min(1),
@@ -22,10 +23,14 @@ export interface RateLimitResult {
 }
 
 export interface RedisSlidingWindowClient {
-  zAdd(key: string, values: Array<{ score: number; value: string }>): Promise<number>;
-  zRemRangeByScore(key: string, min: number, max: number): Promise<number>;
-  zCard(key: string): Promise<number>;
-  pExpire(key: string, ttlMs: number): Promise<number>;
+  zAdd?: (key: string, values: Array<{ score: number; value: string }>) => Promise<number>;
+  zadd?: (key: string, score: number, value: string) => Promise<number>;
+  zRemRangeByScore?: (key: string, min: number, max: number) => Promise<number>;
+  zremrangebyscore?: (key: string, min: number, max: number) => Promise<number>;
+  zCard?: (key: string) => Promise<number>;
+  zcard?: (key: string) => Promise<number>;
+  pExpire?: (key: string, ttlMs: number) => Promise<number>;
+  pexpire?: (key: string, ttlMs: number) => Promise<number>;
 }
 
 function bucketKey(identity: RateLimitIdentity): string {
@@ -35,7 +40,10 @@ function bucketKey(identity: RateLimitIdentity): string {
 export class RateLimiter {
   private readonly inMemoryWindows = new Map<string, number[]>();
 
-  constructor(private readonly redisClient?: RedisSlidingWindowClient) {}
+  constructor(
+    private readonly redisClient?: RedisSlidingWindowClient,
+    private readonly configStore: OrgQuotaConfigStore = new OrgQuotaConfigStore(),
+  ) {}
 
   async check(identity: RateLimitIdentity, descriptor: RateLimitDescriptor): Promise<RateLimitResult> {
     const parsedDescriptor = RateLimitDescriptorSchema.parse(descriptor);
@@ -48,6 +56,14 @@ export class RateLimiter {
     return this.checkInMemory(key, parsedDescriptor);
   }
 
+  async checkForOrg(identity: RateLimitIdentity): Promise<RateLimitResult> {
+    const orgConfig = this.configStore.loadOrgConfig(identity.orgId);
+    return this.check(identity, {
+      windowMs: orgConfig.rateLimit.requests.windowSeconds * 1000,
+      maxRequests: orgConfig.rateLimit.requests.maxRequests,
+    });
+  }
+
   private async checkRedis(key: string, descriptor: RateLimitDescriptor): Promise<RateLimitResult> {
     const now = Date.now();
     const windowStart = now - descriptor.windowMs;
@@ -57,13 +73,25 @@ export class RateLimiter {
       return this.checkInMemory(key, descriptor);
     }
 
-    await client.zRemRangeByScore(key, Number.NEGATIVE_INFINITY, windowStart);
-    const countBefore = await client.zCard(key);
+    if (client.zRemRangeByScore) {
+      await client.zRemRangeByScore(key, Number.NEGATIVE_INFINITY, windowStart);
+    } else {
+      await client.zremrangebyscore?.(key, Number.NEGATIVE_INFINITY, windowStart);
+    }
+    const countBefore = client.zCard ? await client.zCard(key) : (await client.zcard?.(key)) ?? 0;
     const allowed = countBefore < descriptor.maxRequests;
 
     if (allowed) {
-      await client.zAdd(key, [{ score: now, value: randomUUID() }]);
-      await client.pExpire(key, descriptor.windowMs);
+      if (client.zAdd) {
+        await client.zAdd(key, [{ score: now, value: randomUUID() }]);
+      } else {
+        await client.zadd?.(key, now, randomUUID());
+      }
+      if (client.pExpire) {
+        await client.pExpire(key, descriptor.windowMs);
+      } else {
+        await client.pexpire?.(key, descriptor.windowMs);
+      }
     }
 
     const count = allowed ? countBefore + 1 : countBefore;

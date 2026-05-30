@@ -7,6 +7,10 @@ import { CsaTrustFramework, CsaTrustLevel } from './csa/CsaTrustFramework';
 import { TrustLevelEvaluator, type TrustEvaluationInput } from './csa/TrustLevelEvaluator';
 import { RateLimiter } from './limits/RateLimiter';
 import { QuotaManager } from './limits/QuotaManager';
+import { QuotaStore } from './limits/QuotaStore';
+import { BudgetEnforcer } from './limits/BudgetEnforcer';
+import { QuotaResetScheduler } from './limits/QuotaResetScheduler';
+import { OrgQuotaConfigStore } from './limits/QuotaConfig';
 import { PolicyAuditLog } from './audit/PolicyAuditLog';
 
 const logger = createLogger('policy-engine');
@@ -63,6 +67,8 @@ export interface GovernanceDecision {
   csaLevel: CsaTrustLevel;
   csaLevelName: string;
   permissions: string[];
+  statusCode?: number;
+  headers?: Record<string, string>;
 }
 
 const HIGH_RISK_ACTIONS = new Set([
@@ -135,6 +141,8 @@ export class PolicyEngine {
   private readonly trustLevelEvaluator: TrustLevelEvaluator;
   private readonly rateLimiter: RateLimiter;
   private readonly quotaManager: QuotaManager;
+  private readonly budgetEnforcer: BudgetEnforcer;
+  private readonly quotaResetScheduler: QuotaResetScheduler;
   private readonly policyAuditLog: PolicyAuditLog;
 
   constructor(policyBaseDir?: string) {
@@ -157,12 +165,40 @@ export class PolicyEngine {
     this.abacEngine = new AbacEngine(new PolicyStore(policyBaseDir));
     this.csaFramework = new CsaTrustFramework();
     this.trustLevelEvaluator = new TrustLevelEvaluator(this.csaFramework);
-    this.rateLimiter = new RateLimiter();
-    this.quotaManager = new QuotaManager();
     const auditPath = policyBaseDir
       ? path.join(policyBaseDir, 'policy-audit.jsonl')
       : undefined;
     this.policyAuditLog = new PolicyAuditLog(auditPath);
+    const quotaStore = policyBaseDir ? new QuotaStore(path.join(policyBaseDir, 'quota-state.sqlite')) : new QuotaStore();
+    const quotaConfigStore = policyBaseDir ? new OrgQuotaConfigStore(policyBaseDir) : new OrgQuotaConfigStore();
+    this.rateLimiter = new RateLimiter(undefined, quotaConfigStore);
+    this.quotaManager = new QuotaManager(quotaStore, quotaConfigStore);
+    this.budgetEnforcer = new BudgetEnforcer();
+    this.quotaResetScheduler = new QuotaResetScheduler(quotaStore, this.policyAuditLog);
+    this.quotaResetScheduler.start();
+
+    this.quotaManager.on('quota.warning', (event) => {
+      this.policyAuditLog.append({
+        orgId: String(event.orgId),
+        actor: 'system:quota-manager',
+        action: 'quota.warning',
+        resource: `quota:${String(event.dimension)}`,
+        decision: 'allow',
+        reason: `Quota warning at ${String(event.threshold)}`,
+        metadata: event as Record<string, unknown>,
+      });
+    });
+    this.quotaManager.on('quota.exceeded', (event) => {
+      this.policyAuditLog.append({
+        orgId: String(event.orgId),
+        actor: 'system:quota-manager',
+        action: 'quota.exceeded',
+        resource: `quota:${String((event.exceededDimensions as string[]).join(','))}`,
+        decision: 'deny',
+        reason: String(event.reason),
+        metadata: event as Record<string, unknown>,
+      });
+    });
   }
 
   getRbacEngine(): RbacEngine {
@@ -301,12 +337,22 @@ export class PolicyEngine {
 
     const trustResult = this.trustLevelEvaluator.evaluate(trustInput);
 
-    const limit = await this.rateLimiter.check(
-      { orgId: input.orgId, userId: input.userId, role: roleHint },
-      { windowMs: config.RATE_LIMIT_WINDOW_MS, maxRequests: config.RATE_LIMIT_MAX_REQUESTS },
-    );
+    const limit = await this.rateLimiter.checkForOrg({
+      orgId: input.orgId,
+      userId: input.userId,
+      role: roleHint,
+    });
 
     if (!limit.allowed) {
+      this.policyAuditLog.append({
+        orgId: input.orgId,
+        actor: input.userId,
+        action: 'policy.rate_limit.exceeded',
+        resource: `${input.resource.type}:${input.resource.id}`,
+        decision: 'deny',
+        reason: 'Rate limit exceeded',
+        metadata: { retryAfterMs: limit.retryAfterMs },
+      });
       return {
         allowed: false,
         requiresApproval: false,
@@ -314,6 +360,8 @@ export class PolicyEngine {
         csaLevel: trustResult.level,
         csaLevelName: trustResult.levelName,
         permissions: Array.from(permissions),
+        statusCode: 429,
+        headers: { 'Retry-After': String(Math.max(1, Math.ceil(limit.retryAfterMs / 1000))) },
       };
     }
 
@@ -324,6 +372,15 @@ export class PolicyEngine {
     });
 
     if (!quotaDecision.allowed) {
+      this.policyAuditLog.append({
+        orgId: input.orgId,
+        actor: input.userId,
+        action: 'policy.quota.exceeded',
+        resource: `${input.resource.type}:${input.resource.id}`,
+        decision: 'deny',
+        reason: quotaDecision.reason,
+        metadata: { exceededDimensions: quotaDecision.exceededDimensions },
+      });
       return {
         allowed: false,
         requiresApproval: false,
@@ -331,7 +388,40 @@ export class PolicyEngine {
         csaLevel: trustResult.level,
         csaLevelName: trustResult.levelName,
         permissions: Array.from(permissions),
+        ...(quotaDecision.statusCode ? { statusCode: quotaDecision.statusCode } : {}),
+        ...(quotaDecision.headers ? { headers: quotaDecision.headers } : {}),
       };
+    }
+
+    const usageSnapshot = this.quotaManager.getUsage(input.orgId);
+    const quota = this.quotaManager.getQuotaForOrg(input.orgId);
+    if (quota) {
+      const budgetDecision = this.budgetEnforcer.enforce({
+        orgId: input.orgId,
+        usage: usageSnapshot,
+        quota,
+      });
+      if (!budgetDecision.allowed) {
+        this.policyAuditLog.append({
+          orgId: input.orgId,
+          actor: input.userId,
+          action: 'policy.budget.exceeded',
+          resource: `${input.resource.type}:${input.resource.id}`,
+          decision: 'deny',
+          reason: budgetDecision.reason,
+          metadata: budgetDecision.headers,
+        });
+        return {
+          allowed: false,
+          requiresApproval: false,
+          reasons: [budgetDecision.reason],
+          csaLevel: trustResult.level,
+          csaLevelName: trustResult.levelName,
+          permissions: Array.from(permissions),
+          ...(budgetDecision.statusCode ? { statusCode: budgetDecision.statusCode } : {}),
+          headers: budgetDecision.headers,
+        };
+      }
     }
 
     const abacRequest: AbacRequest = {
