@@ -11,8 +11,8 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
-    "build": "tsc",
-    "build:watch": "tsc --watch",
+    "build": "node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc",
+    "build:watch": "node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc --watch",
     "start": "node dist/index.js",
     "start:dev": "tsx watch src/index.ts",
     "dev": "tsx src/index.ts",
@@ -22,9 +22,8 @@
     "test:ci": "jest --ci --coverage --passWithNoTests --forceExit",
     "lint": "eslint src tests --ext .ts",
     "lint:fix": "eslint src tests --ext .ts --fix",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node --max-old-space-size=8192 ./node_modules/typescript/bin/tsc --noEmit",
     "clean": "rm -rf dist coverage .tsbuildinfo",
-    "prepare": "npm run build",
     "pretest": "npm run typecheck"
   },
   "repository": {
