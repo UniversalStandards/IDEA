@@ -19,7 +19,7 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   logger.error('Fatal startup error', {
-    err: err instanceof Error ? err.message : String(err),
+    err: err instanceof Error ? err : String(err),
   });
   process.exit(1);
 });
