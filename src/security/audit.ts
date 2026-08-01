@@ -69,8 +69,6 @@ class AuditLogger {
     };
 
     this.buffer.push(signedEntry);
-    // Async write — do not await to keep record() synchronous
-    void this.writeLine(signedEntry);
   }
 
   log(entry: {

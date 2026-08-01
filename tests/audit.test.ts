@@ -48,12 +48,13 @@ describe('audit logger compatibility', () => {
       metadata: { reason: 'blocked' },
     });
 
+    await Promise.resolve();
     expect(appendFile).not.toHaveBeenCalled();
     await auditLog.flush();
 
     expect(mkdir).toHaveBeenCalledWith(expect.stringMatching(/runtime$/), { recursive: true });
-    expect(appendFile).toHaveBeenCalled();
-    const payload = String((appendFile as jest.Mock).mock.calls[0]?.[1] ?? '');
+    expect(appendFile).toHaveBeenCalledTimes(1);
+    const payload = String((appendFile as jest.Mock).mock.lastCall?.[1] ?? '');
     expect(payload).toContain('"outcome":"failure"');
   });
 
@@ -69,7 +70,8 @@ describe('audit logger compatibility', () => {
 
       await auditLog.flush();
 
-      const payload = String((appendFile as jest.Mock).mock.calls[0]?.[1] ?? '');
+      expect(appendFile).toHaveBeenCalledTimes(1);
+      const payload = String((appendFile as jest.Mock).mock.lastCall?.[1] ?? '');
       expect(payload).toContain(`"outcome":"${outcome}"`);
     },
   );
