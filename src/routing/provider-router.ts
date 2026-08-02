@@ -9,7 +9,7 @@ export interface AIProvider {
   id: string;
   name: string;
   baseUrl: string;
-  apiKey?: string;
+  apiKey?: string | undefined;
   models: string[];
   maxTokens: number;
   capabilities: string[];

@@ -53,9 +53,11 @@ adminRouter.use(requireAuth);
 adminRouter.get('/capabilities', (req: Request, res: Response) => {
   try {
     // runtimeManager.getCapabilities() may not exist in all versions
+    const rm = runtimeManager as unknown as Record<string, unknown>;
+    const getCapabilities = rm['getCapabilities'];
     const capabilities =
-      typeof (runtimeManager as unknown as Record<string, unknown>).getCapabilities === 'function'
-        ? (runtimeManager as unknown as { getCapabilities: () => unknown[] }).getCapabilities()
+      typeof getCapabilities === 'function'
+        ? (getCapabilities as () => unknown[])()
         : [];
 
     auditLog.record('admin.capabilities.list', 'admin', 'runtime', 'success', undefined, {

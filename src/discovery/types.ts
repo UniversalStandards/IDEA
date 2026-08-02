@@ -4,28 +4,28 @@ export interface ToolMetadata {
   version: string;
   description: string;
   source: 'github' | 'official' | 'enterprise' | 'local' | 'unknown';
-  registryUrl?: string;
-  repository?: string;
-  installCommand?: string;
-  entryPoint?: string;
+  registryUrl?: string | undefined;
+  repository?: string | undefined;
+  installCommand?: string | undefined;
+  entryPoint?: string | undefined;
   capabilities: string[];
   tags: string[];
-  author?: string;
-  license?: string;
-  downloadCount?: number;
-  lastUpdated?: Date;
-  signature?: string;
-  verified?: boolean;
-  riskLevel?: 'low' | 'medium' | 'high';
-  dependencies?: string[];
-  metadata?: Record<string, unknown>;
+  author?: string | undefined;
+  license?: string | undefined;
+  downloadCount?: number | undefined;
+  lastUpdated?: Date | undefined;
+  signature?: string | undefined;
+  verified?: boolean | undefined;
+  riskLevel?: 'low' | 'medium' | 'high' | undefined;
+  dependencies?: string[] | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export interface RegistrySearchOptions {
   query: string;
-  limit?: number;
-  tags?: string[];
-  source?: ToolMetadata['source'];
+  limit?: number | undefined;
+  tags?: string[] | undefined;
+  source?: ToolMetadata['source'] | undefined;
 }
 
 export interface Registry {

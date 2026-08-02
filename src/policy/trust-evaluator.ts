@@ -7,12 +7,12 @@ export interface ToolMetadata {
   name: string;
   version: string;
   source: 'official_registry' | 'github' | 'enterprise' | 'local' | 'unknown';
-  signatureValid?: boolean;
-  downloadCount?: number;
-  knownVulnerabilities?: number;
-  author?: string;
-  publishedAt?: string;
-  metadata?: Record<string, unknown>;
+  signatureValid?: boolean | undefined;
+  downloadCount?: number | undefined;
+  knownVulnerabilities?: number | undefined;
+  author?: string | undefined;
+  publishedAt?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 export interface TrustFactor {
@@ -67,10 +67,14 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
       const semverRegex = /^(\d+)\.(\d+)\.(\d+)/;
       const match = semverRegex.exec(tool.version);
       if (!match) return { weight: 0.15, score: 10, reason: 'Non-semver version string' };
-      const major = parseInt(match[1]!, 10);
+      const majorRaw = match[1];
+      if (!majorRaw) return { weight: 0.15, score: 10, reason: 'Unrecognized version pattern' };
+      const major = parseInt(majorRaw, 10);
       if (major >= 1) return { weight: 0.15, score: 90, reason: 'Stable major version >= 1' };
       if (major === 0) {
-        const minor = parseInt(match[2]!, 10);
+        const minorRaw = match[2];
+        if (!minorRaw) return { weight: 0.15, score: 10, reason: 'Unrecognized version pattern' };
+        const minor = parseInt(minorRaw, 10);
         if (minor >= 5) return { weight: 0.15, score: 60, reason: 'Pre-1.0 but minor >= 5' };
         return { weight: 0.15, score: 30, reason: 'Pre-1.0 early-stage version' };
       }
@@ -184,7 +188,7 @@ export class TrustEvaluator {
   }
 
   getMinimumRequired(action: string): number {
-    return MIN_REQUIRED_BY_ACTION[action] ?? MIN_REQUIRED_BY_ACTION['default']!;
+    return MIN_REQUIRED_BY_ACTION[action] ?? MIN_REQUIRED_BY_ACTION['default'] ?? 25;
   }
 }
 

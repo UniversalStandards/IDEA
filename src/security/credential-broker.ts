@@ -13,8 +13,8 @@ export interface Credential {
   type: CredentialType;
   value: string;
   scopes: string[];
-  expiresAt?: string;
-  metadata?: Record<string, unknown>;
+  expiresAt?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
 }
 
 type StoredCredential = Omit<Credential, 'value'>;
@@ -88,7 +88,10 @@ export class CredentialBroker {
     if (!this.injections.has(toolId)) {
       this.injections.set(toolId, new Set());
     }
-    this.injections.get(toolId)!.add(credName);
+    const injected = this.injections.get(toolId);
+    if (injected) {
+      injected.add(credName);
+    }
 
     auditLogger.log({
       actor: toolId,

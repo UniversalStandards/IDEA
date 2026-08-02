@@ -12,8 +12,8 @@ export class Span {
   readonly traceId: string;
   readonly name: string;
   readonly startTime: number;
-  readonly parentSpanId?: string;
-  endTime?: number;
+  readonly parentSpanId?: string | undefined;
+  endTime?: number | undefined;
   status: SpanStatus = 'unset';
   attributes: SpanAttributes = {};
 

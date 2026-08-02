@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction, Application } from 'express';
+import { Router, type Request, type Response, type NextFunction, type Application } from 'express';
 import { createLogger } from '../../observability/logger';
 import { metrics } from '../../observability/metrics';
 import { registryManager } from '../../discovery/registry-manager';
@@ -68,7 +68,11 @@ export function createRestAdapter(app: Application): void {
         res.status(400).json({ error: 'query is required' });
         return;
       }
-      const results = await registryManager.search({ query, tags, limit });
+      const results = await registryManager.search({
+        query,
+        ...(tags ? { tags } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      });
       metrics.increment('rest_requests_total', { endpoint: 'POST /tools/search' });
       res.json({ tools: results, count: results.length });
     } catch (err) {
@@ -199,7 +203,11 @@ export function createRestAdapter(app: Application): void {
         return;
       }
 
-      const provider = providerRouter.route({ capability, preferredProvider, fallback });
+      const provider = providerRouter.route({
+        capability,
+        ...(preferredProvider ? { preferredProvider } : {}),
+        ...(fallback !== undefined ? { fallback } : {}),
+      });
       if (!provider) {
         res.status(404).json({ error: `No provider available for capability: ${capability}` });
         return;

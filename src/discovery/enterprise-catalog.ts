@@ -140,10 +140,10 @@ export class EnterpriseCatalogConnector implements IRegistryConnector {
       version: t.version,
       description: t.description,
       source: RegistrySource.ENTERPRISE,
-      packageName: t.packageName,
-      repositoryUrl: t.repositoryUrl,
+      ...(t.packageName ? { packageName: t.packageName } : {}),
+      ...(t.repositoryUrl ? { repositoryUrl: t.repositoryUrl } : {}),
       tags: t.tags,
-      trustScore: t.trustScore,
+      ...(t.trustScore !== undefined ? { trustScore: t.trustScore } : {}),
       metadata: t.metadata,
     }));
   }

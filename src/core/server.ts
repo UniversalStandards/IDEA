@@ -8,7 +8,7 @@ import express, { type Express, type Request, type Response, type NextFunction }
 import helmet from 'helmet';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
-import * as http from 'http';
+import type { Server as HttpServer } from 'http';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createLogger } from '../observability/logger';
 import { type Config } from '../config';
@@ -24,7 +24,7 @@ const logger = createLogger('server');
 
 export class Server {
   private app: Express;
-  private httpServer?: http.Server;
+  private httpServer?: HttpServer;
   private mcpAdapter?: MCPAdapter;
   private readonly startedAt = Date.now();
 
@@ -136,7 +136,6 @@ export class Server {
       res.status(404).json({ error: 'Not found' });
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     this.app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
       logger.error('Unhandled request error', { err });
       res.status(500).json({ error: 'Internal server error' });
@@ -164,7 +163,8 @@ export class Server {
       }
     }
 
-    if (this.httpServer) {
+    const httpServer = this.httpServer;
+    if (httpServer) {
       await new Promise<void>((resolve) => {
         // Force-resolve after 10s if graceful drain doesn't finish
         const forceTimeout = setTimeout(() => {
@@ -173,7 +173,7 @@ export class Server {
         }, 10_000);
         forceTimeout.unref();
 
-        this.httpServer!.close(() => {
+        httpServer.close(() => {
           clearTimeout(forceTimeout);
           logger.info('HTTP server closed gracefully');
           resolve();

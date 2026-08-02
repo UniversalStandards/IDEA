@@ -1,6 +1,6 @@
 import * as semver from 'semver';
 import { createLogger } from '../observability/logger';
-import { ToolMetadata } from '../discovery/types';
+import type { ToolMetadata } from '../discovery/types';
 
 const logger = createLogger('dependency-resolver');
 
@@ -22,8 +22,10 @@ function parseDependency(dep: string): ParsedDep | null {
   // Format: "@scope/name@version", "name@version", or just "name"
   const scopedMatch = /^(@[^@/]+\/[^@]+)(?:@(.+))?$/.exec(trimmed);
   if (scopedMatch) {
+    const scopedName = scopedMatch[1];
+    if (!scopedName) return null;
     return {
-      name: scopedMatch[1]!,
+      name: scopedName,
       versionRange: scopedMatch[2] ?? '*',
     };
   }
@@ -60,8 +62,9 @@ function detectConflicts(deps: ParsedDep[]): string[] {
     let allCompatible = true;
     for (let i = 0; i < uniqueRanges.length - 1; i++) {
       for (let j = i + 1; j < uniqueRanges.length; j++) {
-        const a = uniqueRanges[i]!;
-        const b = uniqueRanges[j]!;
+        const a = uniqueRanges[i];
+        const b = uniqueRanges[j];
+        if (!a || !b) continue;
 
         if (a === '*' || b === '*') continue;
 

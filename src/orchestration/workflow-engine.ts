@@ -31,11 +31,11 @@ export interface WorkflowRunResult {
   runId: string;
   workflowId: string;
   startedAt: Date;
-  completedAt?: Date;
+  completedAt?: Date | undefined;
   success: boolean;
   stepResults: Record<string, StepRunResult>;
-  error?: string;
-  input?: Record<string, unknown>;
+  error?: string | undefined;
+  input?: Record<string, unknown> | undefined;
 }
 
 interface StepRunResult {
@@ -92,7 +92,7 @@ export class WorkflowEngine extends EventEmitter {
       startedAt,
       success: false,
       stepResults: {},
-      input,
+      ...(input ? { input } : {}),
     };
 
     try {
@@ -120,7 +120,7 @@ export class WorkflowEngine extends EventEmitter {
     return run;
   }
 
-  emit(event: string, data?: unknown): boolean {
+  override emit(event: string | symbol, data?: unknown): boolean {
     logger.debug('Workflow engine event', { event });
     return super.emit(event, data);
   }

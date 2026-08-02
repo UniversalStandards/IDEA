@@ -11,9 +11,9 @@ const logger = createLogger('execution-planner');
 export interface ExecutionStep {
   id: string;
   type: 'discover' | 'install' | 'execute' | 'validate' | 'approve' | 'notify';
-  toolId?: string;
-  params?: Record<string, unknown>;
-  dependsOn?: string[];
+  toolId?: string | undefined;
+  params?: Record<string, unknown> | undefined;
+  dependsOn?: string[] | undefined;
 }
 
 export interface ExecutionPlan {
@@ -61,12 +61,13 @@ export class ExecutionPlanner {
     }
 
     // Step 2: Validate policy
+    const lastStepId = steps.length > 0 ? steps[steps.length - 1]?.id : undefined;
     const validateStep: ExecutionStep = {
       id: `${planId}-validate`,
       type: 'validate',
-      toolId,
+      ...(toolId ? { toolId } : {}),
       params: { goal, action, actor: context['actor'] ?? 'system' },
-      dependsOn: steps.length > 0 ? [steps[steps.length - 1]!.id] : undefined,
+      ...(lastStepId ? { dependsOn: [lastStepId] } : {}),
     };
     steps.push(validateStep);
 
@@ -86,12 +87,13 @@ export class ExecutionPlanner {
     if (toolId) {
       const registered = runtimeRegistrar.get(toolId);
       if (!registered) {
+        const dependencyId = steps[steps.length - 1]?.id;
         const installStep: ExecutionStep = {
           id: `${planId}-install`,
           type: 'install',
           toolId,
           params: {},
-          dependsOn: [steps[steps.length - 1]!.id],
+          ...(dependencyId ? { dependsOn: [dependencyId] } : {}),
         };
         steps.push(installStep);
       }
@@ -99,23 +101,25 @@ export class ExecutionPlanner {
 
     // Step 5: Execute
     if (toolId && action) {
+      const dependencyId = steps[steps.length - 1]?.id;
       const executeStep: ExecutionStep = {
         id: `${planId}-execute`,
         type: 'execute',
         toolId,
         params: { action, ...(params ?? {}) },
-        dependsOn: [steps[steps.length - 1]!.id],
+        ...(dependencyId ? { dependsOn: [dependencyId] } : {}),
       };
       steps.push(executeStep);
     }
 
     // Step 6: Notify on completion
     if (sendNotification) {
+      const dependencyId = steps[steps.length - 1]?.id;
       const notifyStep: ExecutionStep = {
         id: `${planId}-notify`,
         type: 'notify',
         params: { goal, success: true },
-        dependsOn: [steps[steps.length - 1]!.id],
+        ...(dependencyId ? { dependsOn: [dependencyId] } : {}),
       };
       steps.push(notifyStep);
     }
@@ -194,8 +198,9 @@ export class ExecutionPlanner {
       );
 
       for (let i = 0; i < ready.length; i++) {
-        const step = ready[i]!;
-        const result = results[i]!;
+        const step = ready[i];
+        const result = results[i];
+        if (!step || !result) continue;
 
         remaining.splice(remaining.indexOf(step), 1);
         completed.add(step.id);

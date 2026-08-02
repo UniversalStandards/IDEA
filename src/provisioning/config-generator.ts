@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { createLogger } from '../observability/logger';
-import { ToolMetadata } from '../discovery/types';
+import type { ToolMetadata } from '../discovery/types';
 
 const logger = createLogger('config-generator');
 
@@ -59,8 +59,9 @@ function buildEnv(tool: ToolMetadata, credentials: Record<string, string>): Reco
   // Auto-map credential hints based on tool name
   const credKeys = ENV_CREDENTIAL_KEYS[tool.name] ?? [];
   for (const key of credKeys) {
-    if (process.env[key] && !env[key]) {
-      env[key] = process.env[key]!;
+    const envValue = process.env[key];
+    if (envValue && !env[key]) {
+      env[key] = envValue;
     }
   }
 

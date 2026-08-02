@@ -34,6 +34,7 @@ jest.mock('../src/core/runtime-manager', () => ({
 }));
 
 import jwt from 'jsonwebtoken';
+import { z } from 'zod';
 import { adminRouter } from '../src/api/admin-api';
 
 type MockReq = {
@@ -134,7 +135,6 @@ describe('Admin API — Route Logic', () => {
 
 describe('Audit query schema validation', () => {
   it('accepts valid limit within range 1-500', () => {
-    const { z } = require('zod') as typeof import('zod');
     const schema = z.object({
       limit: z.coerce.number().int().min(1).max(500).default(50),
       offset: z.coerce.number().int().min(0).default(0),
@@ -144,7 +144,6 @@ describe('Audit query schema validation', () => {
   });
 
   it('rejects limit above 500', () => {
-    const { z } = require('zod') as typeof import('zod');
     const schema = z.object({ limit: z.coerce.number().int().min(1).max(500) });
     expect(() => schema.parse({ limit: '501' })).toThrow();
   });

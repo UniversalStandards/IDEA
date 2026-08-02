@@ -13,12 +13,12 @@ export interface ApprovalRequest {
   action: string;
   requestedBy: string;
   reason: string;
-  metadata?: Record<string, unknown>;
+  metadata?: Record<string, unknown> | undefined;
   status: ApprovalStatus;
   createdAt: string;
-  resolvedAt?: string;
-  resolvedBy?: string;
-  denyReason?: string;
+  resolvedAt?: string | undefined;
+  resolvedBy?: string | undefined;
+  denyReason?: string | undefined;
 }
 
 interface AutoApproveRule {
@@ -120,7 +120,7 @@ export class ApprovalGate {
       action,
       requestedBy,
       reason,
-      metadata,
+      ...(metadata ? { metadata } : {}),
       status: 'pending',
       createdAt: new Date().toISOString(),
     };

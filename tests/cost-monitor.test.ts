@@ -25,6 +25,7 @@ jest.mock('../src/observability/logger', () => ({
 }));
 
 import { CostMonitor } from '../src/observability/cost-monitor';
+import { getConfig } from '../src/config';
 
 describe('CostMonitor', () => {
   let monitor: CostMonitor;
@@ -71,9 +72,9 @@ describe('CostMonitor', () => {
   });
 
   it('returns empty summary when no events fall within window', () => {
-    // Push an event, then query with 0ms window (nothing in range)
+    // Push an event, then query with a future cutoff (negative window)
     monitor.record({ provider: 'openai', model: 'gpt-4', inputTokens: 100, outputTokens: 50, costUsd: 0.01, requestId: 'r1' });
-    const summary = monitor.getCostSummary(0);
+    const summary = monitor.getCostSummary(-1);
     expect(summary.requestCount).toBe(0);
     expect(summary.totalCostUsd).toBe(0);
   });
@@ -95,8 +96,7 @@ describe('CostMonitor', () => {
   });
 
   it('does not record when COST_TRACKING_ENABLED=false', () => {
-    const { getConfig } = require('../src/config') as { getConfig: jest.Mock };
-    getConfig.mockReturnValueOnce({ COST_TRACKING_ENABLED: false, COST_BUDGET_DAILY_USD: 0 });
+    (getConfig as jest.Mock).mockReturnValueOnce({ COST_TRACKING_ENABLED: false, COST_BUDGET_DAILY_USD: 0 });
     monitor.record({ provider: 'openai', model: 'gpt-4', inputTokens: 100, outputTokens: 50, costUsd: 0.01, requestId: 'r1' });
     expect(monitor.getEventCount()).toBe(0);
   });

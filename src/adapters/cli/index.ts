@@ -89,7 +89,7 @@ export class CliAdapter implements IAdapter {
     const timeoutMs = tool.timeoutMs ?? 30_000;
     const result = await this.runProcess(tool.command, resolvedArgs, {
       timeoutMs,
-      allowedEnvVars: tool.allowedEnvVars,
+      ...(tool.allowedEnvVars ? { allowedEnvVars: tool.allowedEnvVars } : {}),
     });
 
     auditLog.record(

@@ -10,10 +10,10 @@ import { config } from '../config';
 import { policyEngine } from '../policy/policy-engine';
 import { trustEvaluator } from '../policy/trust-evaluator';
 import { approvalGate } from '../policy/approval-gates';
-import { ToolMetadata } from '../discovery/types';
+import type { ToolMetadata } from '../discovery/types';
 import { dependencyResolver } from './dependency-resolver';
 import { configGenerator } from './config-generator';
-import { runtimeRegistrar, RegisteredTool } from './runtime-registrar';
+import { runtimeRegistrar, type RegisteredTool } from './runtime-registrar';
 
 const logger = createLogger('installer');
 const execFileAsync = promisify(execFile);
@@ -49,8 +49,10 @@ class Semaphore {
 
   release(): void {
     if (this.queue.length > 0) {
-      const next = this.queue.shift()!;
-      next();
+      const next = this.queue.shift();
+      if (next) {
+        next();
+      }
     } else {
       this.permits++;
     }
@@ -112,10 +114,10 @@ export class Installer extends EventEmitter {
         name: tool.name,
         version: tool.version,
         source: mapToolSourceForTrust(tool.source),
-        signatureValid: tool.verified,
-        downloadCount: tool.downloadCount,
-        author: tool.author,
-        metadata: tool.metadata,
+        ...(tool.verified !== undefined ? { signatureValid: tool.verified } : {}),
+        ...(tool.downloadCount !== undefined ? { downloadCount: tool.downloadCount } : {}),
+        ...(tool.author ? { author: tool.author } : {}),
+        ...(tool.metadata ? { metadata: tool.metadata } : {}),
       };
 
       const trustScore = trustEvaluator.evaluate(trustInput);

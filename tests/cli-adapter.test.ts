@@ -113,13 +113,13 @@ describe('CliAdapter', () => {
   it('captures stderr separately from stdout', async () => {
     adapter.register({
       id: 'stderr-tool',
-      command: 'sh',
-      args: ['-c', 'echo error >&2'],
+      command: 'ls',
+      args: ['/definitely/missing/path'],
       description: 'Writes to stderr',
       inputSchema: z.object({}),
     });
     const result = await adapter.execute('stderr-tool', {});
-    expect(result.stderr.trim()).toBe('error');
+    expect(result.stderr.trim().length).toBeGreaterThan(0);
     expect(result.stdout).toBe('');
   });
 

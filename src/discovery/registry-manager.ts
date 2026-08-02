@@ -4,7 +4,7 @@ import { metrics } from '../observability/metrics';
 import { GithubRegistry } from './github-registry';
 import { OfficialRegistry } from './official-registry';
 import { LocalScanner } from './local-scanner';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import type { Registry, RegistrySearchOptions, ToolMetadata } from './types';
 
 const logger = createLogger('registry-manager');
 
@@ -88,8 +88,9 @@ export class RegistryManager {
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < resultsArrays.length; i++) {
-      const result = resultsArrays[i]!;
-      const registry = available[i]!;
+      const result = resultsArrays[i];
+      const registry = available[i];
+      if (!result || !registry) continue;
       if (result.status === 'fulfilled') {
         all.push(...result.value);
         metrics.increment('registry_search_results_total', {
@@ -141,8 +142,9 @@ export class RegistryManager {
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < results.length; i++) {
-      const result = results[i]!;
-      const registry = available[i]!;
+      const result = results[i];
+      const registry = available[i];
+      if (!result || !registry) continue;
       if (result.status === 'fulfilled') {
         all.push(...result.value);
       } else {
@@ -184,8 +186,9 @@ export class RegistryManager {
 
     const available: Registry[] = [];
     for (let i = 0; i < checks.length; i++) {
-      const check = checks[i]!;
-      const registry = candidates[i]!;
+      const check = checks[i];
+      const registry = candidates[i];
+      if (!check || !registry) continue;
       if (check.status === 'fulfilled' && check.value) {
         available.push(registry);
       } else {

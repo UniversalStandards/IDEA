@@ -1,9 +1,9 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import NodeCache from 'node-cache';
 import { config } from '../config';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import type { Registry, RegistrySearchOptions, ToolMetadata } from './types';
 
 const logger = createLogger('github-registry');
 
@@ -68,8 +68,6 @@ function repoToToolMetadata(repo: GithubRepo): ToolMetadata {
     source: 'github',
     registryUrl: repo.html_url,
     repository: repo.clone_url,
-    installCommand: undefined,
-    entryPoint: undefined,
     capabilities,
     tags,
     author: owner,

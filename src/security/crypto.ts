@@ -8,7 +8,15 @@
  * - crypto.timingSafeEqual for constant-time comparison
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual, scrypt as scryptCb } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual as nodeTimingSafeEqual,
+  scrypt as scryptCb,
+} from 'crypto';
 import { promisify } from 'util';
 
 const scryptAsync = promisify(scryptCb);
@@ -28,6 +36,14 @@ export function generateSecureToken(bytes = 32): string {
   return randomBytes(bytes).toString('hex');
 }
 
+export function generateSecret(bytes = 32): string {
+  return generateSecureToken(bytes);
+}
+
+export function hash(payload: string): string {
+  return createHash('sha256').update(payload).digest('hex');
+}
+
 /**
  * Timing-safe string comparison to prevent timing attacks.
  * Both strings are compared after UTF-8 encoding.
@@ -37,10 +53,14 @@ export function constantTimeEqual(a: string, b: string): boolean {
   const bufB = Buffer.from(b, 'utf8');
   if (bufA.length !== bufB.length) {
     // Still do a comparison to avoid length-based timing leak
-    timingSafeEqual(bufA, bufA);
+    nodeTimingSafeEqual(bufA, bufA);
     return false;
   }
-  return timingSafeEqual(bufA, bufB);
+  return nodeTimingSafeEqual(bufA, bufB);
+}
+
+export function timingSafeEqual(a: string, b: string): boolean {
+  return constantTimeEqual(a, b);
 }
 
 /**
@@ -101,7 +121,6 @@ export function decrypt(ciphertext: string, keyHex: string): string {
  * Returns the hex-encoded digest.
  */
 export function hmac(payload: string, secret: string): string {
-  const { createHmac } = require('crypto') as typeof import('crypto');
   return createHmac('sha256', secret).update(payload).digest('hex');
 }
 
@@ -116,6 +135,5 @@ export function verifyHmac(payload: string, secret: string, expectedHmac: string
 // ─────────────────────────────────────────────────────────────────
 function padKey(key: string): string {
   // Convert a non-hex key string to a 32-byte hex key by hashing
-  const { createHash } = require('crypto') as typeof import('crypto');
   return createHash('sha256').update(key).digest('hex');
 }

@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { createLogger } from '../observability/logger';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import type { Registry, RegistrySearchOptions, ToolMetadata } from './types';
 
 const logger = createLogger('local-scanner');
 
@@ -254,9 +254,10 @@ export class LocalScanner implements Registry {
       );
     });
 
-    if (options.tags && options.tags.length > 0) {
+    const tags = options.tags;
+    if (tags && tags.length > 0) {
       results = results.filter((tool) =>
-        options.tags!.some(
+        tags.some(
           (tag) =>
             tool.tags.includes(tag.toLowerCase()) ||
             tool.capabilities.includes(tag.toLowerCase()),

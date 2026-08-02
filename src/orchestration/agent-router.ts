@@ -56,7 +56,10 @@ export class AgentRouter {
       return aRatio - bRatio;
     });
 
-    const selected = candidates[0]!;
+    const selected = candidates[0];
+    if (!selected) {
+      return null;
+    }
     logger.debug('Agent routed', {
       capability,
       agentId: selected.agentId,
