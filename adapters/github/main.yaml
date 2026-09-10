@@ -1,0 +1,74 @@
+openapi: 3.0.3
+info:
+  title: GitHub API
+  version: 1.0.0
+
+servers:
+  - url: https://api.github.com
+
+security:
+  - githubToken: []
+
+components:
+  securitySchemes:
+    githubToken:
+      type: http
+      scheme: bearer
+
+  schemas:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas'
+
+paths:
+  /repos/{owner}/{repo}/contents/{path}:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/files.yaml#/paths/files'
+
+  /repos/{owner}/{repo}:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/repos.yaml#/paths/repo'
+
+  /user/repos:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/repos.yaml#/paths/user-repos'
+
+  /repos/{owner}/{repo}/issues:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/issues.yaml#/paths/issues'
+
+  /repos/{owner}/{repo}/issues/{issue_number}:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/issues.yaml#/paths/issue'
+
+  /repos/{owner}/{repo}/issues/{issue_number}/comments:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/issues.yaml#/paths/comments'
+
+  /repos/{owner}/{repo}/issues/{issue_number}/assignees:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/issues.yaml#/paths/assignees'
+
+  /repos/{owner}/{repo}/pulls:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/pulls.yaml#/paths/pulls'
+
+  /repos/{owner}/{repo}/pulls/{pull_number}:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/pulls.yaml#/paths/pull'
+
+  /repos/{owner}/{repo}/pulls/{pull_number}/merge:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/pulls.yaml#/paths/merge'
+
+  /repos/{owner}/{repo}/pulls/{pull_number}/reviews:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/pulls.yaml#/paths/reviews'
+
+  /repos/{owner}/{repo}/branches:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/branches.yaml#/paths/branches'
+
+  /repos/{owner}/{repo}/git/refs:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/branches.yaml#/paths/refs'
+
+  /repos/{owner}/{repo}/git/refs/{ref}:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/branches.yaml#/paths/ref'
+
+  /repos/{template_owner}/{template_repo}/generate:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/templates.yaml#/paths/generate'
+
+  /repos/{owner}/{repo}/forks:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/templates.yaml#/paths/forks'
+
+  /search/repositories:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/search.yaml#/paths/repos'
+
+  /search/issues:
+    $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/search.yaml#/paths/issues'

@@ -1,0 +1,66 @@
+paths:
+  repos:
+    get:
+      operationId: searchRepositories
+      summary: Search repositories
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string}}
+        - {name: sort, in: query, schema: {type: string, enum: [stars, forks, help-wanted-issues, updated]}}
+        - {name: order, in: query, schema: {type: string, enum: [asc, desc], default: desc}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30, maximum: 100}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count: {type: integer}
+                  items:
+                    type: array
+                    items:
+                      $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'
+
+  issues:
+    get:
+      operationId: searchIssues
+      summary: Search issues and pull requests
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string}}
+        - {name: sort, in: query, schema: {type: string}}
+        - {name: order, in: query, schema: {type: string, enum: [asc, desc], default: desc}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30, maximum: 100}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_count: {type: integer}
+                  items:
+                    type: array
+                    items:
+                      $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Issue'
+
+  code:
+    get:
+      operationId: searchCode
+      summary: Search code
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30}}
+      responses:
+        '200':
+          description: Search results
+
+  users:
+    get:
+      operationId: searchUsers
+      summary: Search users
+      parameters:
+        - {name: q, in: query, required: true, schema: {type: string}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30}}
+      responses:
+        '200':
+          description: Search results

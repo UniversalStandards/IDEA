@@ -1,0 +1,67 @@
+paths:
+  generate:
+    post:
+      operationId: generateFromTemplate
+      summary: Create repository from template (copy repo structure)
+      parameters:
+        - {name: template_owner, in: path, required: true, schema: {type: string}}
+        - {name: template_repo, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                owner: {type: string}
+                name: {type: string}
+                description: {type: string}
+                include_all_branches: {type: boolean, default: false}
+                private: {type: boolean, default: false}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'
+
+  forks:
+    get:
+      operationId: listForks
+      summary: List forks of a repository
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: sort, in: query, schema: {type: string, enum: [newest, oldest, stargazers, watchers], default: newest}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'
+    post:
+      operationId: createFork
+      summary: Fork a repository
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                organization: {type: string, description: "Org/user to fork into"}
+                name: {type: string, description: "New fork name"}
+                default_branch_only: {type: boolean, default: false}
+      responses:
+        '202':
+          description: Fork creation started (async)
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'

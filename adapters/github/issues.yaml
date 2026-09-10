@@ -1,0 +1,166 @@
+paths:
+  issues:
+    get:
+      operationId: listIssues
+      summary: List repository issues
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string, enum: [open, closed, all], default: open}}
+        - {name: assignee, in: query, schema: {type: string}}
+        - {name: labels, in: query, schema: {type: string}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30, maximum: 100}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Issue'
+
+    post:
+      operationId: createIssue
+      summary: Create an issue
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: {type: string}
+                body: {type: string}
+                assignees: {type: array, items: {type: string}}
+                labels: {type: array, items: {type: string}}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Issue'
+
+  issue:
+    get:
+      operationId: getIssue
+      summary: Get an issue
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: issue_number, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Issue'
+
+    patch:
+      operationId: updateIssue
+      summary: Update an issue
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: issue_number, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string}
+                body: {type: string}
+                state: {type: string, enum: [open, closed]}
+                assignees: {type: array, items: {type: string}}
+                labels: {type: array, items: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Issue'
+
+  comments:
+    get:
+      operationId: listIssueComments
+      summary: List issue comments
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: issue_number, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Comment'
+
+    post:
+      operationId: createIssueComment
+      summary: Create issue comment
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: issue_number, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: {type: string}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Comment'
+
+  assignees:
+    post:
+      operationId: addAssignees
+      summary: Add assignees to issue
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: issue_number, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignees]
+              properties:
+                assignees: {type: array, items: {type: string}}
+      responses:
+        '201':
+          description: Assignees added
+
+    delete:
+      operationId: removeAssignees
+      summary: Remove assignees from issue
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: issue_number, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignees]
+              properties:
+                assignees: {type: array, items: {type: string}}
+      responses:
+        '200':
+          description: Assignees removed

@@ -1,0 +1,83 @@
+paths:
+  branches:
+    get:
+      operationId: listBranches
+      summary: List repository branches
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: protected, in: query, schema: {type: boolean}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Branch'
+
+  refs:
+    post:
+      operationId: createReference
+      summary: Create reference (branch/tag)
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ref, sha]
+              properties:
+                ref: {type: string}
+                sha: {type: string}
+      responses:
+        '201':
+          description: Reference created
+
+  ref:
+    patch:
+      operationId: updateReference
+      summary: Update reference (fast-forward or force)
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: ref, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sha]
+              properties:
+                sha: {type: string}
+                force: {type: boolean, default: false}
+      responses:
+        '200':
+          description: Reference updated
+
+    delete:
+      operationId: deleteReference
+      summary: Delete reference
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: ref, in: path, required: true, schema: {type: string}}
+      responses:
+        '204':
+          description: Reference deleted
+
+  compare:
+    get:
+      operationId: compareCommits
+      summary: Compare two commits/branches
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: basehead, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          description: Comparison result

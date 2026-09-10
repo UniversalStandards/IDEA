@@ -1,0 +1,136 @@
+paths:
+  repo:
+    get:
+      operationId: getRepository
+      summary: Get repository
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'
+        '404':
+          description: Repository not found
+
+    patch:
+      operationId: updateRepository
+      summary: Update repository
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type: string}
+                description: {type: string}
+                private: {type: boolean}
+                default_branch: {type: string}
+                archived: {type: boolean}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'
+
+    delete:
+      operationId: deleteRepository
+      summary: Delete repository
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      responses:
+        '204':
+          description: Repository deleted
+
+  user-repos:
+    get:
+      operationId: listUserRepositories
+      summary: List user repositories
+      parameters:
+        - {name: visibility, in: query, schema: {type: string, enum: [all, public, private], default: all}}
+        - {name: sort, in: query, schema: {type: string, enum: [created, updated, pushed, full_name], default: created}}
+        - {name: per_page, in: query, schema: {type: integer, default: 30, maximum: 100}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'
+
+    post:
+      operationId: createRepository
+      summary: Create repository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type: string}
+                description: {type: string}
+                private: {type: boolean, default: false}
+                auto_init: {type: boolean, default: false}
+                gitignore_template: {type: string}
+                license_template: {type: string}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Repo'
+
+  collaborators:
+    get:
+      operationId: listCollaborators
+      summary: List repository collaborators
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/User'
+
+    put:
+      operationId: addCollaborator
+      summary: Add repository collaborator
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: username, in: path, required: true, schema: {type: string}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                permission: {type: string, enum: [pull, push, admin, maintain, triage], default: push}
+      responses:
+        '201':
+          description: Collaborator added
+
+    delete:
+      operationId: removeCollaborator
+      summary: Remove repository collaborator
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: username, in: path, required: true, schema: {type: string}}
+      responses:
+        '204':
+          description: Collaborator removed
