@@ -1,248 +1,178 @@
+/**
+ * src/policy/approval-gates.ts
+ * Synchronous and asynchronous human/agent approval workflows.
+ *
+ * When policy-engine.evaluate() returns `requiresApproval: true`, the caller
+ * creates an approval request here and either:
+ *  - awaits `waitForDecision()` (sync flow, blocks up to a timeout), or
+ *  - polls / receives a callback via the Admin API routes (async flow)
+ *    while the caller's original request is held or retried later.
+ */
+
 import { randomUUID } from 'crypto';
+import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
+import { auditLog } from '../security/audit';
 import { createLogger } from '../observability/logger';
-import { auditLogger } from '../security/audit';
-import { config } from '../config';
+import { ApprovalStatus } from '../types/index';
 
-const logger = createLogger('approval-gate');
+const logger = createLogger('approval-gates');
 
-export type ApprovalStatus = 'pending' | 'approved' | 'denied';
-
-export interface ApprovalRequest {
-  id: string;
-  toolId: string;
-  action: string;
-  requestedBy: string;
-  reason: string;
-  metadata?: Record<string, unknown>;
+export interface ApprovalRequestRecord {
+  readonly id: string;
+  readonly toolId: string;
+  readonly action: string;
+  readonly requestedBy: string;
+  readonly reason: string;
   status: ApprovalStatus;
-  createdAt: string;
-  resolvedAt?: string;
-  resolvedBy?: string;
-  denyReason?: string;
+  readonly createdAt: Date;
+  decidedAt?: Date;
+  decidedBy?: string;
+  decisionNote?: string;
 }
 
-interface AutoApproveRule {
-  toolId: string;
-  action: string;
+interface Waiter {
+  resolve: (req: ApprovalRequestRecord) => void;
+  timer: NodeJS.Timeout;
 }
 
-const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
+export class ApprovalGateManager {
+  private readonly requests = new Map<string, ApprovalRequestRecord>();
+  private readonly waiters = new Map<string, Waiter[]>();
 
-export class ApprovalGate {
-  private readonly requests = new Map<string, ApprovalRequest>();
-  private readonly autoApproveRules: AutoApproveRule[] = [];
-  private readonly timeoutMs: number;
-  private readonly pendingTimers = new Map<string, NodeJS.Timeout>();
-
-  constructor(timeoutMs = DEFAULT_TIMEOUT_MS) {
-    this.timeoutMs = timeoutMs;
-  }
-
-  async request(
-    toolId: string,
-    action: string,
-    requestedBy: string,
-    reason: string,
-    metadata?: Record<string, unknown>,
-  ): Promise<ApprovalRequest> {
-    if (this.isAutoApproved(toolId, action)) {
-      const req = this.createRequest(toolId, action, requestedBy, reason, metadata);
-      return this.approveInternal(req, 'system:auto-approve');
-    }
-
-    let enabled = true;
-    try {
-      enabled = config.REQUIRE_APPROVAL_FOR_HIGH_RISK_ACTIONS;
-    } catch {
-      enabled = process.env['REQUIRE_APPROVAL_FOR_HIGH_RISK_ACTIONS'] !== 'false';
-    }
-
-    if (!enabled) {
-      const req = this.createRequest(toolId, action, requestedBy, reason, metadata);
-      return this.approveInternal(req, 'system:policy-disabled');
-    }
-
-    const req = this.createRequest(toolId, action, requestedBy, reason, metadata);
-
-    return new Promise<ApprovalRequest>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const current = this.requests.get(req.id);
-        if (current && current.status === 'pending') {
-          current.status = 'denied';
-          current.resolvedAt = new Date().toISOString();
-          current.resolvedBy = 'system:timeout';
-          current.denyReason = `Approval timed out after ${this.timeoutMs}ms`;
-          this.pendingTimers.delete(req.id);
-
-          auditLogger.log({
-            actor: requestedBy,
-            action: `approval.timeout:${action}`,
-            resource: toolId,
-            outcome: 'denied',
-            metadata: { requestId: req.id },
-          });
-
-          reject(new Error(`Approval request timed out: ${req.id}`));
-        }
-      }, this.timeoutMs);
-
-      this.pendingTimers.set(req.id, timer);
-
-      const poll = (): void => {
-        const current = this.requests.get(req.id);
-        if (!current || current.status === 'pending') {
-          setTimeout(poll, 500);
-          return;
-        }
-        clearTimeout(timer);
-        this.pendingTimers.delete(req.id);
-        if (current.status === 'approved') {
-          resolve(current);
-        } else {
-          reject(new Error(`Approval denied: ${current.denyReason ?? 'No reason given'}`));
-        }
-      };
-
-      setTimeout(poll, 500);
-    });
-  }
-
-  private createRequest(
-    toolId: string,
-    action: string,
-    requestedBy: string,
-    reason: string,
-    metadata?: Record<string, unknown>,
-  ): ApprovalRequest {
-    const req: ApprovalRequest = {
-      id: randomUUID(),
+  /** Create a new pending approval request. */
+  request(toolId: string, action: string, requestedBy: string, reason: string): ApprovalRequestRecord {
+    const id = randomUUID();
+    const req: ApprovalRequestRecord = {
+      id,
       toolId,
       action,
       requestedBy,
       reason,
-      metadata,
-      status: 'pending',
-      createdAt: new Date().toISOString(),
+      status: ApprovalStatus.PENDING,
+      createdAt: new Date(),
     };
-    this.requests.set(req.id, req);
+    this.requests.set(id, req);
 
-    auditLogger.log({
-      actor: requestedBy,
-      action: `approval.request:${action}`,
-      resource: toolId,
-      outcome: 'success',
-      metadata: { requestId: req.id, reason },
+    auditLog.record('approval.requested', requestedBy, `${toolId}:${action}`, 'pending', id, { reason });
+    logger.info('Approval requested', { id, toolId, action, requestedBy });
+
+    return req;
+  }
+
+  /**
+   * Block until the request is decided or the timeout elapses.
+   * On timeout, the request is marked TIMED_OUT and that terminal state is returned.
+   */
+  async waitForDecision(id: string, timeoutMs = 5 * 60 * 1000): Promise<ApprovalRequestRecord> {
+    const existing = this.requests.get(id);
+    if (!existing) {
+      throw new Error(`Approval request '${id}' not found`);
+    }
+    if (existing.status !== ApprovalStatus.PENDING) {
+      return existing;
+    }
+
+    return new Promise<ApprovalRequestRecord>((resolve) => {
+      const timer = setTimeout(() => {
+        const current = this.requests.get(id);
+        if (current && current.status === ApprovalStatus.PENDING) {
+          current.status = ApprovalStatus.TIMED_OUT;
+          current.decidedAt = new Date();
+          auditLog.record('approval.timed_out', 'system', `${current.toolId}:${current.action}`, 'failure', id);
+          this.settle(id, current);
+        }
+      }, timeoutMs);
+      timer.unref();
+
+      const list = this.waiters.get(id) ?? [];
+      list.push({ resolve, timer });
+      this.waiters.set(id, list);
     });
-
-    logger.info('Approval request created', { id: req.id, toolId, action, requestedBy });
-    return req;
   }
 
-  private approveInternal(req: ApprovalRequest, approvedBy: string): ApprovalRequest {
-    req.status = 'approved';
-    req.resolvedAt = new Date().toISOString();
-    req.resolvedBy = approvedBy;
-    return req;
-  }
-
-  approve(id: string, approvedBy: string): ApprovalRequest {
+  /** Approve or reject a pending request. Idempotent: a second decision throws. */
+  decide(id: string, approved: boolean, decidedBy: string, note?: string): ApprovalRequestRecord {
     const req = this.requests.get(id);
-    if (!req) throw new Error(`Approval request not found: ${id}`);
-    if (req.status !== 'pending') {
-      throw new Error(`Approval request already resolved: ${req.status}`);
+    if (!req) {
+      throw new Error(`Approval request '${id}' not found`);
+    }
+    if (req.status !== ApprovalStatus.PENDING) {
+      throw new Error(`Approval request '${id}' already decided (status: ${req.status})`);
     }
 
-    req.status = 'approved';
-    req.resolvedAt = new Date().toISOString();
-    req.resolvedBy = approvedBy;
+    req.status = approved ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED;
+    req.decidedAt = new Date();
+    req.decidedBy = decidedBy;
+    req.decisionNote = note;
 
-    const timer = this.pendingTimers.get(id);
-    if (timer) {
-      clearTimeout(timer);
-      this.pendingTimers.delete(id);
-    }
+    auditLog.record(
+      approved ? 'approval.approved' : 'approval.rejected',
+      decidedBy,
+      `${req.toolId}:${req.action}`,
+      'success',
+      id,
+      { note },
+    );
 
-    auditLogger.log({
-      actor: approvedBy,
-      action: `approval.approve:${req.action}`,
-      resource: req.toolId,
-      outcome: 'success',
-      metadata: { requestId: id },
-    });
-
-    logger.info('Approval request approved', { id, approvedBy });
+    this.settle(id, req);
     return req;
   }
 
-  deny(id: string, deniedBy: string, denyReason: string): ApprovalRequest {
-    const req = this.requests.get(id);
-    if (!req) throw new Error(`Approval request not found: ${id}`);
-    if (req.status !== 'pending') {
-      throw new Error(`Approval request already resolved: ${req.status}`);
-    }
-
-    req.status = 'denied';
-    req.resolvedAt = new Date().toISOString();
-    req.resolvedBy = deniedBy;
-    req.denyReason = denyReason;
-
-    const timer = this.pendingTimers.get(id);
-    if (timer) {
-      clearTimeout(timer);
-      this.pendingTimers.delete(id);
-    }
-
-    auditLogger.log({
-      actor: deniedBy,
-      action: `approval.deny:${req.action}`,
-      resource: req.toolId,
-      outcome: 'denied',
-      metadata: { requestId: id, denyReason },
-    });
-
-    logger.info('Approval request denied', { id, deniedBy, denyReason });
-    return req;
-  }
-
-  pending(): ApprovalRequest[] {
-    return Array.from(this.requests.values()).filter((r) => r.status === 'pending');
-  }
-
-  get(id: string): ApprovalRequest | undefined {
+  get(id: string): ApprovalRequestRecord | undefined {
     return this.requests.get(id);
   }
 
-  listAll(): ApprovalRequest[] {
-    return Array.from(this.requests.values());
+  listPending(): ApprovalRequestRecord[] {
+    return Array.from(this.requests.values()).filter((r) => r.status === ApprovalStatus.PENDING);
   }
 
-  autoApprove(toolId: string, action: string): void {
-    const existing = this.autoApproveRules.find(
-      (r) => r.toolId === toolId && r.action === action,
-    );
-    if (!existing) {
-      this.autoApproveRules.push({ toolId, action });
-      logger.info('Auto-approve rule added', { toolId, action });
+  private settle(id: string, req: ApprovalRequestRecord): void {
+    const waiters = this.waiters.get(id) ?? [];
+    for (const w of waiters) {
+      clearTimeout(w.timer);
+      w.resolve(req);
     }
+    this.waiters.delete(id);
   }
 
-  removeAutoApprove(toolId: string, action: string): void {
-    const idx = this.autoApproveRules.findIndex(
-      (r) => r.toolId === toolId && r.action === action,
-    );
-    if (idx >= 0) {
-      this.autoApproveRules.splice(idx, 1);
-      logger.info('Auto-approve rule removed', { toolId, action });
-    }
-  }
+  /** Admin API sub-router: list pending approvals and decide on them. */
+  buildRouter(): Router {
+    const router = Router();
 
-  private isAutoApproved(toolId: string, action: string): boolean {
-    return this.autoApproveRules.some(
-      (r) =>
-        (r.toolId === toolId || r.toolId === '*') &&
-        (r.action === action || r.action === '*'),
-    );
+    router.get('/pending', (_req: Request, res: Response) => {
+      res.json({ pending: this.listPending() });
+    });
+
+    const decideSchema = z.object({
+      approved: z.boolean(),
+      note: z.string().max(1000).optional(),
+    });
+
+    router.post('/:id/decide', (req: Request, res: Response) => {
+      const parsed = decideSchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: 'Invalid decision payload', details: parsed.error.issues });
+        return;
+      }
+      const idParam = req.params['id'];
+      if (typeof idParam !== 'string') {
+        res.status(400).json({ error: 'Missing approval id' });
+        return;
+      }
+      try {
+        const decidedBy =
+          (req as Request & { jwtPayload?: { sub?: string } }).jwtPayload?.sub ?? 'admin';
+        const result = this.decide(idParam, parsed.data.approved, decidedBy, parsed.data.note);
+        res.json({ approval: result });
+      } catch (err) {
+        res.status(409).json({ error: err instanceof Error ? err.message : 'Decision failed' });
+      }
+    });
+
+    return router;
   }
 }
 
-export const approvalGate = new ApprovalGate();
+/** Singleton instance for use across the application. */
+export const approvalGates = new ApprovalGateManager();

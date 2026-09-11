@@ -11,6 +11,9 @@ import { createLogger } from '../observability/logger';
 import { getConfig } from '../config';
 import { runtimeManager } from '../core/runtime-manager';
 import { auditLog } from '../security/audit';
+import { policyEngine } from '../policy/policy-engine';
+import { costMonitor } from '../observability/cost-monitor';
+import { approvalGates } from '../policy/approval-gates';
 
 const logger = createLogger('admin-api');
 
@@ -44,6 +47,9 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
 
 // Apply auth middleware to all admin routes
 adminRouter.use(requireAuth);
+
+// Mount the approval-gates sub-router — inherits requireAuth from above.
+adminRouter.use('/approvals', approvalGates.buildRouter());
 
 // ─────────────────────────────────────────────────────────────────
 // GET /admin/capabilities
@@ -112,12 +118,8 @@ adminRouter.delete('/capabilities/:id', (req: Request, res: Response) => {
 
 adminRouter.get('/policies', (_req: Request, res: Response) => {
   try {
-    // Policy engine integration will be wired here once policy-engine exposes getPolicies()
-    res.json({
-      policies: [],
-      count: 0,
-      message: 'Policy listing available after policy-engine is fully initialized',
-    });
+    const policies = policyEngine.listPolicies();
+    res.json({ policies, count: policies.length });
   } catch (err) {
     logger.error('Failed to retrieve policies', { err });
     res.status(500).json({ error: 'Failed to retrieve policies' });
@@ -126,7 +128,7 @@ adminRouter.get('/policies', (_req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────────
 // GET /admin/costs
-// Returns cost summary from the cost monitor for the last 24h.
+// Returns cost summary from the cost monitor for the requested window.
 // ─────────────────────────────────────────────────────────────────
 
 const costsQuerySchema = z.object({
@@ -144,17 +146,8 @@ adminRouter.get('/costs', (req: Request, res: Response) => {
   const windowMs = windowHours * 60 * 60 * 1000;
 
   try {
-    // costMonitor will be wired once src/observability/cost-monitor.ts is imported
-    res.json({
-      window: `${String(windowHours)}h`,
-      windowMs,
-      totalCostUsd: 0,
-      requestCount: 0,
-      byProvider: {},
-      byModel: {},
-      from: new Date(Date.now() - windowMs).toISOString(),
-      to: new Date().toISOString(),
-    });
+    const summary = costMonitor.getCostSummary(windowMs);
+    res.json({ window: `${String(windowHours)}h`, ...summary });
   } catch (err) {
     logger.error('Failed to retrieve cost data', { err });
     res.status(500).json({ error: 'Failed to retrieve cost data' });
@@ -163,7 +156,7 @@ adminRouter.get('/costs', (req: Request, res: Response) => {
 
 // ─────────────────────────────────────────────────────────────────
 // GET /admin/audit
-// Returns recent audit log entries (paginated).
+// Returns recent audit log entries (paginated), from the in-memory ring buffer.
 // ─────────────────────────────────────────────────────────────────
 
 const auditQuerySchema = z.object({
@@ -182,14 +175,8 @@ adminRouter.get('/audit', (req: Request, res: Response) => {
   const { limit, offset, action } = parsed.data;
 
   try {
-    res.json({
-      entries: [],
-      limit,
-      offset,
-      action: action ?? null,
-      total: 0,
-      message: 'Audit entries available when ENABLE_AUDIT_LOGGING=true and after runtime initialization',
-    });
+    const { entries, total } = auditLog.getRecent(limit, offset, action);
+    res.json({ entries, limit, offset, action: action ?? null, total });
   } catch (err) {
     logger.error('Failed to retrieve audit entries', { err });
     res.status(500).json({ error: 'Failed to retrieve audit entries' });

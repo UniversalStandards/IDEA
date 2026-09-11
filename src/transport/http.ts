@@ -9,6 +9,7 @@ import { healthRouter } from '../api/health';
 import { statusRouter } from '../api/status';
 import { adminRouter } from '../api/admin-api';
 import { createRestAdapter } from '../adapters/rest/index';
+import { eventsAdapter } from '../adapters/events/index';
 import { createHttpRateLimitMiddleware } from './middleware/rateLimit';
 import type { ITransport } from './index';
 
@@ -68,6 +69,7 @@ export class HttpTransport implements ITransport {
     this.options.app.use('/health', healthRouter);
     this.options.app.use('/status', statusRouter);
     this.options.app.use('/admin', adminRouter);
+    this.options.app.use('/adapters/events', eventsAdapter.buildRouter());
     createRestAdapter(this.options.app);
 
     this.initialized = true;

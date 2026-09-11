@@ -9,6 +9,10 @@ import { scheduler } from '../routing/scheduler';
 import { runtimeRegistrar } from '../provisioning/runtime-registrar';
 import { NormalizedRequest } from '../normalization/request-normalizer';
 import { requestNormalizer } from '../normalization/request-normalizer';
+import { eventsAdapter } from '../adapters/events/index';
+import { graphqlAdapter } from '../adapters/graphql/index';
+import { cliAdapter } from '../adapters/cli/index';
+import { credentialBroker } from '../security/credential-broker';
 
 const logger = createLogger('runtime-manager');
 
@@ -52,6 +56,15 @@ export class RuntimeManager {
       // Capability selector is stateless, ready
       logger.info('Capability selector ready');
 
+      // Initialize adapters that manage their own resources (event listeners,
+      // in-memory registries, credential scopes) so they are ready before the
+      // first request arrives and are included in the shutdown sequence.
+      await eventsAdapter.initialize();
+      await graphqlAdapter.initialize();
+      await cliAdapter.initialize();
+      await credentialBroker.initialize();
+      logger.info('Adapters and credential broker ready');
+
       metrics.increment('runtime_initializations_total');
       this.initialized = true;
       logger.info('Runtime manager initialized successfully');
@@ -81,6 +94,14 @@ export class RuntimeManager {
         }
       }
     }
+
+    // Shut down adapters in reverse dependency order — credential broker last
+    // among adapters so any in-flight tool call still draining can retrieve
+    // a credential it already holds a scope for.
+    await eventsAdapter.shutdown();
+    await graphqlAdapter.shutdown();
+    await cliAdapter.shutdown();
+    await credentialBroker.shutdown();
 
     metrics.increment('runtime_shutdowns_total');
     this.initialized = false;
@@ -119,6 +140,26 @@ export class RuntimeManager {
         name: 'scheduler',
         healthy: true,
         detail: JSON.stringify(scheduler.getStats()),
+      },
+      {
+        name: 'events-adapter',
+        healthy: true,
+        detail: `${eventsAdapter.sseClientCount} SSE clients connected`,
+      },
+      {
+        name: 'graphql-adapter',
+        healthy: true,
+        detail: `${graphqlAdapter.getEndpoints().length} endpoints registered`,
+      },
+      {
+        name: 'cli-adapter',
+        healthy: true,
+        detail: `${cliAdapter.getRegisteredTools().length} tools registered`,
+      },
+      {
+        name: 'credential-broker',
+        healthy: true,
+        detail: `${credentialBroker.listHandles().length} credential handles`,
       },
     ];
 
