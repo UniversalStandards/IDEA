@@ -7,7 +7,7 @@
 # ─────────────────────────────────────────────────────────────────
 # Stage 1: Builder
 # ─────────────────────────────────────────────────────────────────
-FROM node:20-slim AS builder
+FROM node:26-slim AS builder
 
 WORKDIR /build
 
@@ -26,7 +26,7 @@ RUN npm ci --omit=dev --ignore-scripts
 # ─────────────────────────────────────────────────────────────────
 # Stage 2: Runtime
 # ─────────────────────────────────────────────────────────────────
-FROM node:20-slim AS runtime
+FROM node:26-slim AS runtime
 
 # OCI standard labels
 LABEL org.opencontainers.image.title="Universal MCP Orchestration Hub"
