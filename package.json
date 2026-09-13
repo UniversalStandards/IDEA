@@ -51,7 +51,7 @@
   },
   "homepage": "https://github.com/UniversalStandards/IDEA#readme",
   "dependencies": {
-    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/grpc-js": "^1.14.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "axios": "^1.15.0",
     "cors": "^2.8.6",
