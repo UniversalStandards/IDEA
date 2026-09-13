@@ -12,8 +12,11 @@ import type { ZodSchema } from 'zod';
 
 export enum TransportType {
   HTTP = 'http',
+  HTTP2 = 'http2',
   STDIO = 'stdio',
   SSE = 'sse',
+  WEBSOCKET = 'websocket',
+  GRPC = 'grpc',
 }
 
 export enum RiskLevel {

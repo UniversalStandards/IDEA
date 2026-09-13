@@ -38,7 +38,7 @@ const ConfigSchema = z.object({
     .default('info'),
 
   // Transport
-  MCP_TRANSPORT: z.enum(['stdio', 'http', 'sse']).default('http'),
+  MCP_TRANSPORT: z.enum(['stdio', 'http', 'http2', 'sse', 'websocket', 'grpc']).default('http'),
 
   // AI Providers
   DEFAULT_AI_PROVIDER: z.string().default('openai'),
@@ -89,6 +89,8 @@ const ConfigSchema = z.object({
   // Rate Limiting
   RATE_LIMIT_WINDOW_MS: intEnv(60_000, 1000),
   RATE_LIMIT_MAX_REQUESTS: intEnv(300, 1),
+  TRANSPORT_MAX_CONNECTIONS_PER_CLIENT: intEnv(25, 1),
+  GRPC_PORT: intEnv(50_051, 1, 65_535),
 
   // Webhook / Events Adapter
   WEBHOOK_SECRET: z.string().optional(),

@@ -1,7 +1,8 @@
 /**
  * src/security/audit.ts
  * Immutable audit logging with HMAC signatures.
- * Every significant action produces a signed audit entry written to audit.jsonl.
+ * Every significant action produces a signed audit entry written to audit.jsonl,
+ * and is also kept in a bounded in-memory ring buffer for fast Admin API reads.
  */
 
 import { appendFile } from 'fs/promises';
@@ -19,6 +20,8 @@ const AUDIT_LOG_PATH = path.join(process.cwd(), 'runtime', 'audit.jsonl');
 // ─────────────────────────────────────────────────────────────────
 class AuditLogger {
   private readonly buffer: AuditEntry[] = [];
+  private readonly history: AuditEntry[] = [];
+  private readonly maxHistory = 5000;
   private flushPromise: Promise<void> | null = null;
   private readonly enabled: boolean;
 
@@ -69,8 +72,28 @@ class AuditLogger {
     };
 
     this.buffer.push(signedEntry);
+
+    this.history.push(signedEntry);
+    if (this.history.length > this.maxHistory) {
+      this.history.splice(0, this.history.length - this.maxHistory);
+    }
+
     // Async write — do not await to keep record() synchronous
     void this.writeLine(signedEntry);
+  }
+
+  /**
+   * Return recent audit entries, newest first, optionally filtered by action.
+   * Backed by an in-memory ring buffer (capacity: maxHistory) — for full
+   * historical queries beyond that window, read runtime/audit.jsonl directly.
+   */
+  getRecent(limit = 50, offset = 0, action?: string): { entries: AuditEntry[]; total: number } {
+    const filtered = action ? this.history.filter((e) => e.action === action) : this.history;
+    const newestFirst = [...filtered].reverse();
+    return {
+      entries: newestFirst.slice(offset, offset + limit),
+      total: filtered.length,
+    };
   }
 
   /**

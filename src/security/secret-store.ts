@@ -1,107 +1,127 @@
-import * as fs from 'fs';
-import * as path from 'path';
+/**
+ * src/security/secret-store.ts
+ * In-memory, encrypted secret storage.
+ *
+ * Secrets are held in memory only (never written to disk) and are encrypted
+ * at rest using AES-256-GCM via crypto.ts, keyed off ENCRYPTION_KEY. This
+ * protects secret values from casual memory dumps/heap snapshots while still
+ * allowing fast access within a single process.
+ *
+ * This is NOT a substitute for a KMS in a multi-node deployment — see
+ * docs/security.md "Secret Store" section for the future KMS integration path.
+ */
+
 import { encrypt, decrypt } from './crypto';
-import { config } from '../config';
+import { getConfig } from '../config';
 import { createLogger } from '../observability/logger';
 
 const logger = createLogger('secret-store');
 
-interface EncryptedRecord {
-  ciphertext: string;
-  updatedAt: string;
-}
-
-interface PersistedStore {
-  version: number;
-  secrets: Record<string, EncryptedRecord>;
-}
-
-function getEncryptionKey(): string {
-  try {
-    return config.ENCRYPTION_KEY;
-  } catch {
-    return process.env['ENCRYPTION_KEY'] ?? 'fallback-dev-key-change-me-in-prod!!';
-  }
+interface StoredSecret {
+  readonly ciphertext: string;
+  readonly createdAt: Date;
+  readonly expiresAt?: Date;
 }
 
 export class SecretStore {
-  private readonly store = new Map<string, string>();
+  private readonly secrets = new Map<string, StoredSecret>();
 
-  set(key: string, value: string): void {
-    if (!key || key.trim() === '') throw new Error('Secret key must not be empty');
-    this.store.set(key, value);
-    logger.debug('Secret stored', { key });
+  /**
+   * Store a secret value, encrypted at rest.
+   * @param key   Unique identifier for the secret
+   * @param value Plaintext secret value (never logged)
+   * @param ttlMs Optional time-to-live in milliseconds
+   */
+  set(key: string, value: string, ttlMs?: number): void {
+    const encryptionKey = this.getEncryptionKey();
+    const ciphertext = encrypt(value, encryptionKey);
+    const expiresAt = ttlMs !== undefined ? new Date(Date.now() + ttlMs) : undefined;
+    this.secrets.set(key, { ciphertext, createdAt: new Date(), expiresAt });
+    logger.debug('Secret stored', { key, hasTtl: ttlMs !== undefined });
   }
 
+  /**
+   * Retrieve and decrypt a secret value.
+   * Returns undefined if the key does not exist or has expired.
+   */
   get(key: string): string | undefined {
-    return this.store.get(key);
+    const stored = this.secrets.get(key);
+    if (!stored) return undefined;
+
+    if (stored.expiresAt && stored.expiresAt.getTime() < Date.now()) {
+      this.secrets.delete(key);
+      logger.debug('Secret expired and evicted', { key });
+      return undefined;
+    }
+
+    const encryptionKey = this.getEncryptionKey();
+    try {
+      return decrypt(stored.ciphertext, encryptionKey);
+    } catch (err) {
+      logger.error('Failed to decrypt secret — key rotation may have invalidated it', {
+        key,
+        err: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
   }
 
-  delete(key: string): boolean {
-    const existed = this.store.has(key);
-    this.store.delete(key);
-    if (existed) logger.debug('Secret deleted', { key });
-    return existed;
-  }
-
-  list(): string[] {
-    return Array.from(this.store.keys());
-  }
-
+  /** Check existence without decrypting. */
   has(key: string): boolean {
-    return this.store.has(key);
+    const stored = this.secrets.get(key);
+    if (!stored) return false;
+    if (stored.expiresAt && stored.expiresAt.getTime() < Date.now()) {
+      this.secrets.delete(key);
+      return false;
+    }
+    return true;
   }
 
-  clear(): void {
-    this.store.clear();
+  /** Permanently remove a secret. */
+  delete(key: string): boolean {
+    return this.secrets.delete(key);
   }
 
-  async save(filePath: string): Promise<void> {
-    const encKey = getEncryptionKey();
-    const secrets: Record<string, EncryptedRecord> = {};
-
-    for (const [key, value] of this.store.entries()) {
-      secrets[key] = {
-        ciphertext: encrypt(value, encKey),
-        updatedAt: new Date().toISOString(),
-      };
-    }
-
-    const payload: PersistedStore = { version: 1, secrets };
-    const dir = path.dirname(filePath);
-    await fs.promises.mkdir(dir, { recursive: true });
-    await fs.promises.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8');
-    await fs.promises.chmod(filePath, 0o600);
-    logger.info('Secret store saved', { path: filePath, count: this.store.size });
-  }
-
-  async load(filePath: string): Promise<void> {
-    if (!fs.existsSync(filePath)) {
-      logger.info('No secret store file found, starting empty', { path: filePath });
-      return;
-    }
-
-    const encKey = getEncryptionKey();
-    const raw = await fs.promises.readFile(filePath, 'utf8');
-    const payload: PersistedStore = JSON.parse(raw) as PersistedStore;
-
-    if (payload.version !== 1) {
-      throw new Error(`Unsupported secret store version: ${payload.version}`);
-    }
-
-    let loaded = 0;
-    for (const [key, record] of Object.entries(payload.secrets)) {
+  /** Re-encrypt every stored secret under a new encryption key (zero-downtime rotation). */
+  rotateEncryption(oldKey: string, newKey: string): number {
+    let rotated = 0;
+    for (const [key, stored] of this.secrets.entries()) {
       try {
-        const value = decrypt(record.ciphertext, encKey);
-        this.store.set(key, value);
-        loaded++;
+        const plaintext = decrypt(stored.ciphertext, oldKey);
+        const ciphertext = encrypt(plaintext, newKey);
+        this.secrets.set(key, { ...stored, ciphertext });
+        rotated += 1;
       } catch (err) {
-        logger.error('Failed to decrypt secret, skipping', { key, err });
+        logger.error('Failed to rotate secret during key rotation', {
+          key,
+          err: err instanceof Error ? err.message : String(err),
+        });
       }
     }
+    logger.info('Secret store encryption rotated', { rotated, total: this.secrets.size });
+    return rotated;
+  }
 
-    logger.info('Secret store loaded', { path: filePath, loaded });
+  /** Number of secrets currently stored (for observability, not their values). */
+  size(): number {
+    return this.secrets.size;
+  }
+
+  /** Remove all secrets. Used on shutdown and in tests. */
+  clear(): void {
+    this.secrets.clear();
+  }
+
+  private getEncryptionKey(): string {
+    try {
+      return getConfig().ENCRYPTION_KEY;
+    } catch {
+      // Config not yet validated (e.g. in isolated unit tests) — use a fixed
+      // 32-char fallback so encrypt/decrypt round-trips still function.
+      return 'test-fallback-key-32-characters!';
+    }
   }
 }
 
+/** Singleton instance for use across the application. */
 export const secretStore = new SecretStore();

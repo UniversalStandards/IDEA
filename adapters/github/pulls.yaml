@@ -1,0 +1,144 @@
+paths:
+  pulls:
+    get:
+      operationId: listPRs
+      summary: List pull requests
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: state, in: query, schema: {type: string, enum: [open, closed, all], default: open}}
+        - {name: base, in: query, schema: {type: string}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/PR'
+
+    post:
+      operationId: createPR
+      summary: Create pull request
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, head, base]
+              properties:
+                title: {type: string}
+                body: {type: string}
+                head: {type: string}
+                base: {type: string}
+                draft: {type: boolean, default: false}
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/PR'
+
+  pull:
+    get:
+      operationId: getPR
+      summary: Get pull request
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: pull_number, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/PR'
+
+    patch:
+      operationId: updatePR
+      summary: Update pull request
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: pull_number, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string}
+                body: {type: string}
+                state: {type: string, enum: [open, closed]}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/PR'
+
+  merge:
+    put:
+      operationId: mergePR
+      summary: Merge pull request
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: pull_number, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                commit_title: {type: string}
+                commit_message: {type: string}
+                merge_method: {type: string, enum: [merge, squash, rebase], default: merge}
+      responses:
+        '200':
+          description: Successfully merged
+        '405':
+          description: Not mergeable
+
+  reviews:
+    get:
+      operationId: listPRReviews
+      summary: List pull request reviews
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: pull_number, in: path, required: true, schema: {type: integer}}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Review'
+
+    post:
+      operationId: createPRReview
+      summary: Create pull request review (approve/request changes/comment)
+      parameters:
+        - {name: owner, in: path, required: true, schema: {type: string}}
+        - {name: repo, in: path, required: true, schema: {type: string}}
+        - {name: pull_number, in: path, required: true, schema: {type: integer}}
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                body: {type: string}
+                event: {type: string, enum: [APPROVE, REQUEST_CHANGES, COMMENT]}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: 'https://raw.githubusercontent.com/UniversalStandards/IDEA/main/adapters/github/schemas.yaml#/components/schemas/Review'

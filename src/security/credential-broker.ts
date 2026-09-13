@@ -1,162 +1,154 @@
+/**
+ * src/security/credential-broker.ts
+ * Scoped credential issuance and lifecycle management.
+ *
+ * Wraps secret-store.ts with:
+ *  - Scope enforcement: a credential is issued for a specific (toolId, action)
+ *    pair and cannot be retrieved outside that scope.
+ *  - Audit logging on every store/retrieve/revoke/rotate operation.
+ *  - Rotation without downtime: rotate() issues a new value while in-flight
+ *    callers holding the same scope keep working transparently.
+ */
+
 import { randomUUID } from 'crypto';
 import { secretStore } from './secret-store';
-import { auditLogger } from './audit';
+import { auditLog } from './audit';
 import { createLogger } from '../observability/logger';
+import type { IAdapter } from '../types/index';
 
 const logger = createLogger('credential-broker');
 
-export type CredentialType = 'api_key' | 'oauth_token' | 'basic' | 'bearer';
-
-export interface Credential {
-  id: string;
-  name: string;
-  type: CredentialType;
-  value: string;
-  scopes: string[];
-  expiresAt?: string;
-  metadata?: Record<string, unknown>;
+export interface CredentialScope {
+  readonly toolId: string;
+  readonly action?: string; // omit to scope the whole tool
 }
 
-type StoredCredential = Omit<Credential, 'value'>;
+export interface CredentialHandle {
+  readonly id: string;
+  readonly scope: CredentialScope;
+  readonly createdAt: Date;
+  readonly rotatedAt?: Date;
+  readonly revoked: boolean;
+}
 
-const CRED_PREFIX = 'cred:';
-const META_PREFIX = 'cred-meta:';
+function scopeKey(scope: CredentialScope): string {
+  return `cred:${scope.toolId}:${scope.action ?? '*'}`;
+}
 
-export class CredentialBroker {
-  private readonly injections = new Map<string, Set<string>>();
+export class CredentialBrokerError extends Error {
+  public readonly code: 'NOT_FOUND' | 'SCOPE_VIOLATION' | 'REVOKED';
 
-  register(name: string, cred: Omit<Credential, 'id'>): Credential {
+  constructor(message: string, code: 'NOT_FOUND' | 'SCOPE_VIOLATION' | 'REVOKED') {
+    super(message);
+    this.name = 'CredentialBrokerError';
+    this.code = code;
+  }
+}
+
+export class CredentialBroker implements IAdapter {
+  readonly name = 'credential-broker';
+  readonly protocol = 'internal';
+
+  private readonly handles = new Map<string, CredentialHandle>();
+
+  async initialize(): Promise<void> {
+    logger.info('Credential broker initialized', { handles: this.handles.size });
+  }
+
+  async shutdown(): Promise<void> {
+    // secretStore itself is cleared separately during shutdown, after every
+    // adapter has reported shutdown complete, so in-flight requests that
+    // still need a credential during their own drain do not fail early.
+    logger.info('Credential broker shut down');
+  }
+
+  /**
+   * Issue and store a new scoped credential.
+   * @returns a handle identifying the credential — the plaintext value is
+   *          never returned from issue(); retrieve it with `retrieve()`
+   *          using the same scope.
+   */
+  issue(scope: CredentialScope, value: string, ttlMs?: number): CredentialHandle {
     const id = randomUUID();
-    const full: Credential = { ...cred, id, name };
-    const meta: StoredCredential = {
-      id: full.id,
-      name: full.name,
-      type: full.type,
-      scopes: full.scopes,
-      expiresAt: full.expiresAt,
-      metadata: full.metadata,
+    const key = scopeKey(scope);
+    secretStore.set(key, value, ttlMs);
+
+    const handle: CredentialHandle = {
+      id,
+      scope,
+      createdAt: new Date(),
+      revoked: false,
     };
+    this.handles.set(id, handle);
 
-    secretStore.set(`${CRED_PREFIX}${name}`, full.value);
-    secretStore.set(`${META_PREFIX}${name}`, JSON.stringify(meta));
-
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.register',
-      resource: name,
-      outcome: 'success',
-      metadata: { id, type: cred.type },
+    auditLog.record('credential.issued', 'system', key, 'success', id, {
+      toolId: scope.toolId,
+      action: scope.action ?? '*',
     });
 
-    logger.info('Credential registered', { name, type: cred.type, id });
-    return full;
+    return handle;
   }
 
-  get(name: string): Credential | undefined {
-    const raw = secretStore.get(`${CRED_PREFIX}${name}`);
-    const metaRaw = secretStore.get(`${META_PREFIX}${name}`);
-    if (!raw || !metaRaw) return undefined;
+  /**
+   * Retrieve a credential's plaintext value. The caller must present the
+   * same scope the credential was issued under — a request for
+   * { toolId: 'x', action: 'read' } will NOT retrieve a credential issued
+   * for { toolId: 'x', action: 'write' }.
+   */
+  retrieve(scope: CredentialScope, requestedBy: string): string {
+    const key = scopeKey(scope);
+    const value = secretStore.get(key);
 
-    const meta = JSON.parse(metaRaw) as StoredCredential;
-
-    if (meta.expiresAt && new Date(meta.expiresAt) < new Date()) {
-      logger.warn('Credential expired', { name });
-      auditLogger.log({
-        actor: 'system',
-        action: 'credential.access',
-        resource: name,
-        outcome: 'failure',
-        metadata: { reason: 'expired' },
+    if (value === undefined) {
+      auditLog.record('credential.retrieve', requestedBy, key, 'failure', undefined, {
+        reason: 'not_found_or_expired',
       });
-      return undefined;
+      throw new CredentialBrokerError(`No credential found for scope '${key}'`, 'NOT_FOUND');
     }
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.access',
-      resource: name,
-      outcome: 'success',
-    });
-
-    return { ...meta, value: raw };
+    auditLog.record('credential.retrieve', requestedBy, key, 'success');
+    return value;
   }
 
-  inject(toolId: string, credName: string): Credential {
-    const cred = this.get(credName);
-    if (!cred) throw new Error(`Credential not found or expired: ${credName}`);
+  /**
+   * Rotate a credential in place: the new value replaces the old one under
+   * the same scope key.
+   */
+  rotate(scope: CredentialScope, newValue: string, rotatedBy: string, ttlMs?: number): void {
+    const key = scopeKey(scope);
+    secretStore.set(key, newValue, ttlMs);
 
-    if (!this.injections.has(toolId)) {
-      this.injections.set(toolId, new Set());
+    for (const [id, handle] of this.handles.entries()) {
+      if (handle.scope.toolId === scope.toolId && handle.scope.action === scope.action) {
+        this.handles.set(id, { ...handle, rotatedAt: new Date() });
+      }
     }
-    this.injections.get(toolId)!.add(credName);
 
-    auditLogger.log({
-      actor: toolId,
-      action: 'credential.inject',
-      resource: credName,
-      outcome: 'success',
-    });
-
-    logger.debug('Credential injected', { toolId, credName });
-    return cred;
+    auditLog.record('credential.rotated', rotatedBy, key, 'success');
+    logger.info('Credential rotated', { scope: key });
   }
 
-  revoke(name: string): boolean {
-    const existed =
-      secretStore.delete(`${CRED_PREFIX}${name}`) ||
-      secretStore.delete(`${META_PREFIX}${name}`);
+  /** Permanently revoke a credential. Subsequent retrieve() calls will fail. */
+  revoke(scope: CredentialScope, revokedBy: string): boolean {
+    const key = scopeKey(scope);
+    const existed = secretStore.has(key);
+    secretStore.delete(key);
 
-    for (const [toolId, creds] of this.injections.entries()) {
-      creds.delete(name);
-      if (creds.size === 0) this.injections.delete(toolId);
+    for (const [id, handle] of this.handles.entries()) {
+      if (handle.scope.toolId === scope.toolId && handle.scope.action === scope.action) {
+        this.handles.set(id, { ...handle, revoked: true });
+      }
     }
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.revoke',
-      resource: name,
-      outcome: existed ? 'success' : 'failure',
-    });
-
-    logger.info('Credential revoked', { name });
+    auditLog.record('credential.revoked', revokedBy, key, existed ? 'success' : 'failure');
     return existed;
   }
 
-  rotate(name: string, newValue: string): boolean {
-    if (!secretStore.has(`${CRED_PREFIX}${name}`)) return false;
-    secretStore.set(`${CRED_PREFIX}${name}`, newValue);
-
-    auditLogger.log({
-      actor: 'system',
-      action: 'credential.rotate',
-      resource: name,
-      outcome: 'success',
-    });
-
-    logger.info('Credential rotated', { name });
-    return true;
-  }
-
-  listAll(): StoredCredential[] {
-    const results: StoredCredential[] = [];
-    for (const key of secretStore.list()) {
-      if (key.startsWith(META_PREFIX)) {
-        const raw = secretStore.get(key);
-        if (raw) {
-          try {
-            results.push(JSON.parse(raw) as StoredCredential);
-          } catch {
-            // ignore malformed entries
-          }
-        }
-      }
-    }
-    return results;
-  }
-
-  getInjectedCredentials(toolId: string): string[] {
-    return Array.from(this.injections.get(toolId) ?? []);
+  /** List handles (metadata only — never plaintext values) for observability. */
+  listHandles(): CredentialHandle[] {
+    return Array.from(this.handles.values());
   }
 }
 
+/** Singleton instance for use across the application. */
 export const credentialBroker = new CredentialBroker();
