@@ -47,8 +47,9 @@ export class RuntimeManager {
       // Policy engine is already initialized via its module
       logger.info('Policy engine ready', { policies: policyEngine.listPolicies().length });
 
-      // Provider router is pre-configured
+      // Provider router is pre-configured; start its background health checks
       logger.info('Provider router ready', { providers: providerRouter.listProviders().length });
+      providerRouter.startHealthChecks();
 
       // Workflow engine is event-driven, no startup needed
       logger.info('Workflow engine ready');
@@ -94,6 +95,8 @@ export class RuntimeManager {
         }
       }
     }
+
+    providerRouter.stopHealthChecks();
 
     // Shut down adapters in reverse dependency order — credential broker last
     // among adapters so any in-flight tool call still draining can retrieve

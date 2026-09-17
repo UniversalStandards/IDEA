@@ -7,6 +7,13 @@
  *  - awaits `waitForDecision()` (sync flow, blocks up to a timeout), or
  *  - polls / receives a callback via the Admin API routes (async flow)
  *    while the caller's original request is held or retried later.
+ *
+ * `approvalGate` (singular, exported at the bottom) is a legacy-compatible
+ * facade for callers (e.g. src/provisioning/installer.ts) written against a
+ * combined "create-and-block" contract: a single call that resolves only
+ * once approved, or throws on rejection/timeout. New code should prefer the
+ * split `approvalGates.request()` / `approvalGates.waitForDecision()` API,
+ * which lets a caller expose a "pending" state instead of blocking.
  */
 
 import { randomUUID } from 'crypto';
@@ -24,6 +31,7 @@ export interface ApprovalRequestRecord {
   readonly action: string;
   readonly requestedBy: string;
   readonly reason: string;
+  readonly metadata?: Record<string, unknown>;
   status: ApprovalStatus;
   readonly createdAt: Date;
   decidedAt?: Date;
@@ -40,8 +48,14 @@ export class ApprovalGateManager {
   private readonly requests = new Map<string, ApprovalRequestRecord>();
   private readonly waiters = new Map<string, Waiter[]>();
 
-  /** Create a new pending approval request. */
-  request(toolId: string, action: string, requestedBy: string, reason: string): ApprovalRequestRecord {
+  /** Create a new pending approval request. Does not block. */
+  request(
+    toolId: string,
+    action: string,
+    requestedBy: string,
+    reason: string,
+    metadata?: Record<string, unknown>,
+  ): ApprovalRequestRecord {
     const id = randomUUID();
     const req: ApprovalRequestRecord = {
       id,
@@ -49,12 +63,16 @@ export class ApprovalGateManager {
       action,
       requestedBy,
       reason,
+      metadata,
       status: ApprovalStatus.PENDING,
       createdAt: new Date(),
     };
     this.requests.set(id, req);
 
-    auditLog.record('approval.requested', requestedBy, `${toolId}:${action}`, 'pending', id, { reason });
+    auditLog.record('approval.requested', requestedBy, `${toolId}:${action}`, 'pending', id, {
+      reason,
+      ...metadata,
+    });
     logger.info('Approval requested', { id, toolId, action, requestedBy });
 
     return req;
@@ -89,6 +107,32 @@ export class ApprovalGateManager {
       list.push({ resolve, timer });
       this.waiters.set(id, list);
     });
+  }
+
+  /**
+   * Create a request AND block until it is approved, rejected, or times out
+   * — throwing in the latter two cases. This is the contract pre-existing
+   * callers (installer.ts) were written against; see the module doc comment.
+   */
+  async requestAndWait(
+    toolId: string,
+    action: string,
+    requestedBy: string,
+    reason: string,
+    metadata?: Record<string, unknown>,
+    timeoutMs = 5 * 60 * 1000,
+  ): Promise<ApprovalRequestRecord> {
+    const req = this.request(toolId, action, requestedBy, reason, metadata);
+    const decided = await this.waitForDecision(req.id, timeoutMs);
+
+    if (decided.status === ApprovalStatus.REJECTED) {
+      throw new Error(`Approval rejected${decided.decisionNote ? `: ${decided.decisionNote}` : ''}`);
+    }
+    if (decided.status === ApprovalStatus.TIMED_OUT) {
+      throw new Error('Approval request timed out');
+    }
+
+    return decided;
   }
 
   /** Approve or reject a pending request. Idempotent: a second decision throws. */
@@ -174,5 +218,25 @@ export class ApprovalGateManager {
   }
 }
 
-/** Singleton instance for use across the application. */
+/** Singleton instance for use across the application — preferred API for new code. */
 export const approvalGates = new ApprovalGateManager();
+
+/**
+ * Legacy-compatible facade matching the blocking
+ * `(toolId, action, actor, reason, metadata?) => Promise<ApprovalRequestRecord>`
+ * contract that src/provisioning/installer.ts was written against. Internally
+ * creates a request via `approvalGates` and blocks until decided, throwing on
+ * rejection or timeout — do NOT alias this to `approvalGates.request()`
+ * directly, since that method is intentionally non-blocking and would let an
+ * install silently proceed without ever actually being gated.
+ */
+export const approvalGate = {
+  request: (
+    toolId: string,
+    action: string,
+    requestedBy: string,
+    reason: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<ApprovalRequestRecord> =>
+    approvalGates.requestAndWait(toolId, action, requestedBy, reason, metadata),
+};
