@@ -111,6 +111,38 @@ export function deriveWorkerSessionKey(jwtSecret: string): string {
     .digest('hex');
 }
 
+/**
+ * Validates and percent-encodes a caller-supplied Vault secret path
+ * (`WorkerSessionRequest.vaultSecretPaths`) before it is concatenated into
+ * a request URL under `VAULT_SECRET_MOUNT`.
+ *
+ * Rejects empty, `.`, and `..` segments: without this, a path like
+ * `../../sys/leases/lookup` would normalize to a URL *outside* the
+ * configured mount, letting whoever can request a worker session make the
+ * adapter's Vault AppRole token hit any Vault API path that token's policy
+ * allows — not just secrets under the mount it was meant to be confined to.
+ * Every remaining segment is then percent-encoded individually (not the
+ * path as a whole, which would also encode the `/` separators meant to
+ * stay as hierarchy) so a segment can't smuggle a pre-encoded traversal
+ * sequence (e.g. a literal `%2e%2e`) past this check and have some
+ * downstream layer decode it later — `encodeURIComponent` turns a literal
+ * `%` into `%25`, so a value can never *become* a dot-segment after this.
+ */
+function encodeVaultSecretPath(path: string): string {
+  const segments = path.split('/');
+  return segments
+    .map((segment) => {
+      if (segment.length === 0 || segment === '.' || segment === '..') {
+        throw new UpcloudWorkerFactoryError(
+          `Invalid Vault secret path '${path}': empty, '.', and '..' segments are not allowed`,
+          'VAULT_ERROR',
+        );
+      }
+      return encodeURIComponent(segment);
+    })
+    .join('/');
+}
+
 export interface WorkerSessionRequest {
   /** 'browser' for a CDP-driven Chromium session, 'desktop' for a full
    *  pixel-streamed desktop (see docs/gates — desktop is CDP's debug/view
@@ -379,6 +411,9 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
 
     for (const scope of state.leasedCredentialScopes) {
       credentialBroker.revoke(scope, endedBy);
+      if (scope.vaultLeaseId) {
+        await this.revokeVaultLease(scope.vaultLeaseId, sessionId);
+      }
     }
 
     this.sessions.delete(sessionId);
@@ -436,13 +471,42 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
   }
 
   /**
+   * Revoke a Vault dynamic-secret lease immediately through Vault's own
+   * `sys/leases/revoke` API, rather than relying solely on the lease's own
+   * TTL to expire it. Without this, ending a worker session only erased
+   * the hub's own encrypted copy of the credential via credentialBroker —
+   * the actual Vault-issued credential stayed valid against whatever
+   * backend issued it (a database, a cloud provider, …) until its lease
+   * TTL ran out on its own, which could be well after the session ended.
+   * Best-effort: a failure here is logged loudly but does not abort the
+   * caller's own teardown — the lease's TTL remains a backstop even if
+   * this call itself fails (Vault unreachable, token expired, etc.).
+   */
+  private async revokeVaultLease(leaseId: string, sessionId: string): Promise<void> {
+    const cfg = getConfig();
+    try {
+      const token = await this.ensureVaultToken();
+      await axios.put(
+        `${cfg.VAULT_ADDR}/v1/sys/leases/revoke`,
+        { lease_id: leaseId },
+        { headers: { 'X-Vault-Token': token }, timeout: 10_000 },
+      );
+    } catch (err) {
+      logger.error('Failed to revoke Vault lease — it will still expire on its own TTL as a backstop', {
+        sessionId,
+        leaseId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
    * Lease one dynamic secret per requested Vault path and issue each into
    * credentialBroker, scoped to (`upcloud-worker-factory`, `<sessionId>:<path>`).
-   * Returns the scopes so endSession() can revoke them without this module
-   * (or any caller) ever touching Vault's own revocation API directly —
-   * revoking through credentialBroker is what actually erases the value from
-   * secretStore and leaves the audit trail; the underlying Vault lease still
-   * expires on its own TTL as a backstop if revocation here is ever skipped.
+   * Returns the scopes (each carrying the Vault lease_id alongside the
+   * credentialBroker scope) so endSession() can revoke both the hub's own
+   * copy and the underlying Vault lease itself — see revokeVaultLease()
+   * above for why both matter.
    */
   private async leaseVaultSecrets(
     sessionId: string,
@@ -451,13 +515,19 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
   ): Promise<CredentialScopeRef[]> {
     if (vaultPaths.length === 0) return [];
 
+    // Validate and encode every path *before* any Vault call is made, so a
+    // malformed path in a multi-secret request is rejected up front rather
+    // than partway through — see encodeVaultSecretPath() for why this
+    // matters (path-traversal outside VAULT_SECRET_MOUNT).
+    const requestedPaths = vaultPaths.map((path) => ({ path, encodedPath: encodeVaultSecretPath(path) }));
+
     const cfg = getConfig();
     const token = await this.ensureVaultToken();
     const scopes: CredentialScopeRef[] = [];
 
     try {
-      for (const path of vaultPaths) {
-        const resp = await axios.get<unknown>(`${cfg.VAULT_ADDR}/v1/${cfg.VAULT_SECRET_MOUNT}/${path}`, {
+      for (const { path, encodedPath } of requestedPaths) {
+        const resp = await axios.get<unknown>(`${cfg.VAULT_ADDR}/v1/${cfg.VAULT_SECRET_MOUNT}/${encodedPath}`, {
           headers: { 'X-Vault-Token': token },
           timeout: 10_000,
         });
@@ -469,7 +539,11 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
           );
         }
 
-        const scope: CredentialScopeRef = { toolId: 'upcloud-worker-factory', action: `${sessionId}:${path}` };
+        const scope: CredentialScopeRef = {
+          toolId: 'upcloud-worker-factory',
+          action: `${sessionId}:${path}`,
+          vaultLeaseId: parsed.data.lease_id,
+        };
         credentialBroker.issue(scope, JSON.stringify(parsed.data.data), ttlMs);
         scopes.push(scope);
 
@@ -483,9 +557,14 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
       // A multi-secret request that fails partway through must not leave
       // the secrets already issued for earlier paths live with nothing able
       // to reach — or later revoke — them: this request is about to fail
-      // end-to-end, so roll back everything it issued before propagating.
+      // end-to-end, so roll back everything it issued (both the
+      // credentialBroker copy and the underlying Vault lease) before
+      // propagating.
       for (const scope of scopes) {
         credentialBroker.revoke(scope, 'system:rollback');
+        if (scope.vaultLeaseId) {
+          await this.revokeVaultLease(scope.vaultLeaseId, sessionId);
+        }
       }
       throw err;
     }

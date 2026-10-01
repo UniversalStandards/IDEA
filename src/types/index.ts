@@ -382,6 +382,13 @@ export interface WorkerSessionState {
 export interface CredentialScopeRef {
   readonly toolId: string;
   readonly action?: string;
+  /** Vault's own dynamic-secret lease ID for this scope, when the credential
+   *  came from a Vault lease (see upcloud-worker-factory/index.ts). Lets
+   *  teardown revoke the lease itself through Vault's API, not just the
+   *  hub's own encrypted copy of it via credentialBroker — otherwise the
+   *  underlying Vault credential stays valid until its lease TTL expires on
+   *  its own, well after the session that leased it has ended. */
+  readonly vaultLeaseId?: string;
 }
 
 /** What is handed back to the caller after a session is created. Never

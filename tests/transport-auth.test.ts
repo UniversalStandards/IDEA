@@ -3,12 +3,18 @@
  * Unit tests for src/transport/middleware/auth.ts — isTransportAuthorized()
  * is the shared gate for the SSE, WebSocket, and gRPC transports, all of
  * which route an authorized request straight into
- * runtimeManager.handleRequest() with full capability access. A
- * worker-session token (minted by adapters/upcloud-worker-factory for a
- * single browser/desktop session) is signed with the same JWT_SECRET as
- * every other bearer token this hub issues, so it must be explicitly
- * rejected here — not just at the Admin API — or it becomes a general
- * runtime-access credential.
+ * runtimeManager.handleRequest() with full capability access.
+ *
+ * A genuine worker-session token (minted by adapters/upcloud-worker-factory
+ * for a single browser/desktop session) is signed with
+ * deriveWorkerSessionKey(JWT_SECRET), not JWT_SECRET itself, so it already
+ * fails jwt.verify(token, cfg.JWT_SECRET) on signature mismatch — it never
+ * reaches general runtime access, full stop. The explicit `scope` check
+ * below this comment exists as defense-in-depth: it covers a token that was
+ * (incorrectly) signed with JWT_SECRET directly and carries a
+ * worker-session scope claim, which is exactly what the test below
+ * ("rejects a worker-session-scoped token...") constructs and verifies is
+ * still rejected, not just at the Admin API.
  */
 
 import jwt from 'jsonwebtoken';

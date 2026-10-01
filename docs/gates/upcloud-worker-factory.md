@@ -24,11 +24,22 @@ what this document freezes.
 
 ### Gate 1 — Auth handshake
 
-**Decision: no parallel auth system.** A worker session token is an ordinary
-JWT signed with the hub's existing `JWT_SECRET` — the same key and `Bearer
-<token>` convention already used by `admin-api.ts` and
-`transport/middleware/auth.ts`. It is distinguished from an admin-api token
-by claims, not by a different signing key or verification path:
+**Decision: no parallel auth system, but a dedicated signing key.** A worker
+session token is an ordinary JWT using the same `Bearer <token>` convention
+already used by `admin-api.ts` and `transport/middleware/auth.ts` — but it is
+signed with `deriveWorkerSessionKey(JWT_SECRET)` (HMAC-SHA256 of `JWT_SECRET`
+over a fixed, versioned context string; see `src/adapters/upcloud-worker-factory/index.ts`),
+**not** `JWT_SECRET` directly.
+
+> **Updated 2026-10-01** — this gate originally read "signed with the hub's
+> existing `JWT_SECRET`, distinguished from an admin-api token by claims, not
+> by a different signing key." A review of this PR found that relying on
+> every verifier remembering to check `scope !== 'worker-session'` by hand
+> left exactly one that didn't (`src/multitenancy/TenantMiddleware.ts`).
+> Key derivation closes that by construction instead, and is corrected here
+> in place rather than versioned to v2 — no UpCloud-side broker/pool build
+> exists against the old text yet (no live UpCloud/Vault account to
+> integration-test against), so there is nothing external to break.
 
 ```ts
 // Claims shape (see mintSessionToken() / verifySessionToken() in
@@ -42,9 +53,17 @@ by claims, not by a different signing key or verification path:
 }
 ```
 
-`verifySessionToken()` rejects any token whose `scope` is not
-`'worker-session'` — an admin-api token cannot be replayed as a worker-session
-token and vice versa, even though both are signed with the same secret.
+A verifier that needs to validate a worker-session token independently of
+this hub's own `verifySessionToken()` (e.g. a future UpCloud-side component)
+**must** compute `deriveWorkerSessionKey(JWT_SECRET)` itself, not use
+`JWT_SECRET` directly — verifying with `JWT_SECRET` will reject every
+genuine worker-session token outright (signature mismatch), which is the
+point: it means every *other* verifier in this hub that already checks
+straight against `JWT_SECRET` rejects a worker-session token for free, with
+no per-verifier opt-in required. `verifySessionToken()` additionally rejects
+any token whose `scope` is not `'worker-session'` as defense-in-depth — an
+admin-api token cannot be replayed as a worker-session token and vice versa,
+even setting the key difference aside.
 
 A subagent the calling agent dispatches gets **its own** token (its own
 `createSession()` call, its own `sub`), never a shared one — ending one

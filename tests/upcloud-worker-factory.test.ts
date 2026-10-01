@@ -51,6 +51,8 @@ describe('UpcloudWorkerFactoryAdapter', () => {
     mockedAxios.create.mockReturnValue(mockBrokerClient as unknown as ReturnType<typeof axios.create>);
     mockedAxios.post.mockReset();
     mockedAxios.get.mockReset();
+    mockedAxios.put.mockReset();
+    mockedAxios.put.mockResolvedValue({ data: {} });
     // credentialBroker is a module-level singleton (shared across tests), but
     // every test below uses a unique sessionId/scope, so no cross-test reset
     // is needed — scope keys never collide.
@@ -303,6 +305,93 @@ describe('UpcloudWorkerFactoryAdapter', () => {
 
       const firstScope = { toolId: 'upcloud-worker-factory', action: 'sess-partial:upcloud-worker-factory/first-path' };
       expect(() => credentialBroker.retrieve(firstScope, 'test')).toThrow();
+
+      // The first path's underlying Vault lease must be revoked too, not
+      // just the hub's own encrypted copy — otherwise it stays valid
+      // against whatever backend issued it until its TTL runs out on its
+      // own, even though the session that leased it never came into being.
+      expect(mockedAxios.put).toHaveBeenCalledWith(
+        'https://vault.example.internal/v1/sys/leases/revoke',
+        { lease_id: 'lease-1' },
+        expect.objectContaining({ headers: { 'X-Vault-Token': 'vault-token-xyz' } }),
+      );
+    });
+
+    it('rejects a Vault secret path containing a traversal segment, before any Vault call is made', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-traversal',
+          workerId: 'worker-traversal',
+          endpoint: 'wss://worker-traversal.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockBrokerClient.delete.mockResolvedValue({ data: {} });
+
+      // Without validation, this would normalize to a Vault API path
+      // *outside* VAULT_SECRET_MOUNT, reachable by whatever the AppRole's
+      // policy allows — not just secrets under the configured mount.
+      await expect(
+        adapter.createSession({
+          capability: 'browser',
+          requestedBy: 'agent-1',
+          vaultSecretPaths: ['../../sys/leases/lookup'],
+        }),
+      ).rejects.toMatchObject({ code: 'VAULT_ERROR' });
+
+      // Rejected before ever touching Vault — not even the AppRole login.
+      expect(mockedAxios.post).not.toHaveBeenCalled();
+      expect(mockedAxios.get).not.toHaveBeenCalled();
+    });
+
+    it('percent-encodes each Vault secret path segment before including it in the request URL', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-encode',
+          workerId: 'worker-encode',
+          endpoint: 'wss://worker-encode.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockedAxios.post.mockResolvedValue({
+        data: { auth: { client_token: 'vault-token-xyz', lease_duration: 3600 } },
+      });
+      mockedAxios.get.mockResolvedValue({
+        data: { lease_id: 'lease-1', lease_duration: 3600, data: { apiKey: 'leased-secret-value' } },
+      });
+
+      await adapter.createSession({
+        capability: 'browser',
+        requestedBy: 'agent-1',
+        vaultSecretPaths: ['team a/secret#1'],
+      });
+
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        'https://vault.example.internal/v1/secret/team%20a/secret%231',
+        expect.anything(),
+      );
     });
 
     it('leases Vault secrets into credentialBroker and revokes them on endSession()', async () => {
@@ -344,6 +433,57 @@ describe('UpcloudWorkerFactoryAdapter', () => {
       await adapter.endSession(handle.sessionId, 'agent-1');
 
       expect(() => credentialBroker.retrieve(scope, 'test')).toThrow();
+
+      // The underlying Vault lease itself must be revoked, not just the
+      // hub's own encrypted copy of it — otherwise the real credential
+      // stays valid until its lease TTL expires on its own.
+      expect(mockedAxios.put).toHaveBeenCalledWith(
+        'https://vault.example.internal/v1/sys/leases/revoke',
+        { lease_id: 'lease-1' },
+        expect.objectContaining({ headers: { 'X-Vault-Token': 'vault-token-xyz' } }),
+      );
+    });
+
+    it('revokeVaultLease() failure during endSession() is logged but does not stop teardown', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-vault-revoke-fails',
+          workerId: 'worker-vault-revoke-fails',
+          endpoint: 'wss://worker-vault-revoke-fails.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockBrokerClient.delete.mockResolvedValue({ data: {} });
+      mockedAxios.post.mockResolvedValue({
+        data: { auth: { client_token: 'vault-token-xyz', lease_duration: 3600 } },
+      });
+      mockedAxios.get.mockResolvedValue({
+        data: { lease_id: 'lease-1', lease_duration: 3600, data: { apiKey: 'leased-secret-value' } },
+      });
+      mockedAxios.put.mockRejectedValue(new Error('Vault unreachable'));
+
+      const handle = await adapter.createSession({
+        capability: 'browser',
+        requestedBy: 'agent-1',
+        vaultSecretPaths: ['upcloud-worker-factory/session-creds'],
+      });
+
+      // Vault being unreachable for the revoke call must not prevent the
+      // rest of teardown (broker session delete, credentialBroker revoke,
+      // local session-map cleanup) from completing.
+      await expect(adapter.endSession(handle.sessionId, 'agent-1')).resolves.toBeUndefined();
+      expect(adapter.listSessions()).toHaveLength(0);
     });
   });
 
