@@ -109,6 +109,25 @@ const ConfigSchema = z.object({
   // Redis (future distributed caching)
   REDIS_URL: z.string().url().optional(),
 
+  // UpCloud Worker Factory — ephemeral browser/desktop worker sessions for
+  // agents with no local device/browser linked. Off by default; see
+  // docs/gates/upcloud-worker-factory.md.
+  ENABLE_UPCLOUD_WORKER_FACTORY: boolEnv(false),
+  UPCLOUD_BROKER_URL: z.string().url().optional(),
+  UPCLOUD_BROKER_API_KEY: z.string().optional(),
+  WORKER_SESSION_DEFAULT_TTL_MS: intEnv(900_000, 60_000, 14_400_000), // default 15m, floor 1m
+  WORKER_SESSION_MAX_TTL_MS: intEnv(3_600_000, 60_000, 28_800_000), // default cap 1h, hard ceiling 8h
+  WORKER_POOL_WARM_SIZE: intEnv(0, 0, 50),
+
+  // Vault (AppRole auth) — dynamic secret leasing for worker sessions.
+  // Credentials leased from Vault are issued into this hub's own
+  // credential-broker (scoped, audited, TTL-bound) rather than read by
+  // callers directly from Vault.
+  VAULT_ADDR: z.string().url().optional(),
+  VAULT_ROLE_ID: z.string().optional(),
+  VAULT_SECRET_ID: z.string().optional(),
+  VAULT_SECRET_MOUNT: z.string().default('secret'),
+
   // Observability
   ENABLE_METRICS: boolEnv(true),
   ENABLE_TRACING: boolEnv(true),
@@ -141,6 +160,27 @@ export function validateConfig(): Config {
     // Block silly log level in production
     if (_config.LOG_LEVEL === 'silly') {
       throw new Error('LOG_LEVEL=silly is not permitted in NODE_ENV=production');
+    }
+    if (_config.ENABLE_UPCLOUD_WORKER_FACTORY) {
+      if (!_config.UPCLOUD_BROKER_URL) {
+        throw new Error('ENABLE_UPCLOUD_WORKER_FACTORY=true requires UPCLOUD_BROKER_URL in production');
+      }
+      // UPCLOUD_BROKER_API_KEY and every worker-session create/delete call
+      // ride on this URL — z.string().url() alone accepts http://, which
+      // would send that credential and all session traffic in cleartext.
+      if (!_config.UPCLOUD_BROKER_URL.startsWith('https://')) {
+        throw new Error('UPCLOUD_BROKER_URL must use https:// in production (it carries the broker API key)');
+      }
+      if (!_config.VAULT_ADDR || !_config.VAULT_ROLE_ID || !_config.VAULT_SECRET_ID) {
+        throw new Error(
+          'ENABLE_UPCLOUD_WORKER_FACTORY=true requires VAULT_ADDR, VAULT_ROLE_ID, and VAULT_SECRET_ID in production',
+        );
+      }
+      // The AppRole secret_id, the resulting client_token, and every leased
+      // secret value flow over this URL — same reasoning as above.
+      if (_config.VAULT_ADDR && !_config.VAULT_ADDR.startsWith('https://')) {
+        throw new Error('VAULT_ADDR must use https:// in production (it carries Vault auth tokens and leased secrets)');
+      }
     }
   }
 

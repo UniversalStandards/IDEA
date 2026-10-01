@@ -1,7 +1,7 @@
 {
-  "name": "universal-mcp-orchestration-hub",
+  "name": "universal-standard-mcp-server",
   "version": "0.1.0",
-  "description": "A universal, intelligent, self-provisioning MCP (Model Context Protocol) orchestration platform that automatically discovers, validates, installs, governs, and operates tools, services, agents, and protocol adapters from public registries, private repositories, enterprise catalogs, and local ecosystems on demand.",
+  "description": "Universal Standard MCP Server — a universal, intelligent, self-provisioning MCP (Model Context Protocol) orchestration platform that automatically discovers, validates, installs, governs, and operates tools, services, agents, and protocol adapters from public registries, private repositories, enterprise catalogs, and local ecosystems on demand.",
   "main": "dist/index.js",
   "bin": {
     "mcp-hub": "dist/index.js"

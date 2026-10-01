@@ -355,3 +355,57 @@ export interface WorkflowState {
   readonly updatedAt: Date;
   readonly error?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Worker Session (UpCloud Worker Factory — ephemeral browser/desktop
+// sessions for agents with no local device/browser available)
+// See docs/gates/upcloud-worker-factory.md for the full interface contract.
+// ─────────────────────────────────────────────────────────────────
+
+export type WorkerSessionCapability = 'browser' | 'desktop';
+
+/** Internal record of a live worker session, held by the adapter. */
+export interface WorkerSessionState {
+  readonly sessionId: string;
+  readonly workerId: string;
+  readonly capability: WorkerSessionCapability;
+  readonly endpoint: string;
+  readonly requestedBy: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  /** credentialBroker scopes leased for this session — revoked together on end. */
+  readonly leasedCredentialScopes: CredentialScopeRef[];
+  /** Set when endSession()'s broker-side teardown call failed: credentials
+   *  for this session have already been revoked (leasedCredentialScopes is
+   *  cleared once that happens), but the remote worker and its session
+   *  token may still be live, and local bookkeeping is retained — rather
+   *  than discarded — so a caller (or a reconciliation job) can retry by
+   *  calling endSession() again instead of the failure being silently
+   *  forgotten. Absent/false for an ordinary, not-yet-ended session. */
+  readonly teardownPending?: boolean;
+}
+
+/** Minimal scope reference — mirrors security/credential-broker.ts's CredentialScope
+ *  without importing from security/ into the shared types module. */
+export interface CredentialScopeRef {
+  readonly toolId: string;
+  readonly action?: string;
+  /** Vault's own dynamic-secret lease ID for this scope, when the credential
+   *  came from a Vault lease (see upcloud-worker-factory/index.ts). Lets
+   *  teardown revoke the lease itself through Vault's API, not just the
+   *  hub's own encrypted copy of it via credentialBroker — otherwise the
+   *  underlying Vault credential stays valid until its lease TTL expires on
+   *  its own, well after the session that leased it has ended. */
+  readonly vaultLeaseId?: string;
+}
+
+/** What is handed back to the caller after a session is created. Never
+ *  includes leased secret values — only a connection endpoint and a
+ *  worker-session-scoped bearer token. */
+export interface WorkerSessionHandle {
+  readonly sessionId: string;
+  readonly endpoint: string;
+  readonly token: string;
+  readonly expiresAt: Date;
+  readonly capability: WorkerSessionCapability;
+}

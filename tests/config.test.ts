@@ -99,6 +99,43 @@ describe('Config', () => {
     expect(() => validateConfig()).toThrow('ENCRYPTION_KEY must be set');
   });
 
+  describe('UpCloud worker factory — production transport security', () => {
+    function productionEnv(overrides: Record<string, string> = {}): void {
+      process.env['NODE_ENV'] = 'production';
+      process.env['JWT_SECRET'] = 'valid-production-jwt-secret-32-chars!!';
+      process.env['ENCRYPTION_KEY'] = 'valid-production-encryption-key-here!';
+      process.env['ENABLE_UPCLOUD_WORKER_FACTORY'] = 'true';
+      process.env['UPCLOUD_BROKER_URL'] = 'https://broker.example.com';
+      process.env['VAULT_ADDR'] = 'https://vault.example.com';
+      process.env['VAULT_ROLE_ID'] = 'role-123';
+      process.env['VAULT_SECRET_ID'] = 'secret-123';
+      Object.assign(process.env, overrides);
+    }
+
+    it('rejects an http:// UPCLOUD_BROKER_URL in production (carries the broker API key)', () => {
+      productionEnv({ UPCLOUD_BROKER_URL: 'http://broker.example.com' });
+      expect(() => validateConfig()).toThrow('UPCLOUD_BROKER_URL must use https://');
+    });
+
+    it('rejects an http:// VAULT_ADDR in production (carries Vault auth tokens and leased secrets)', () => {
+      productionEnv({ VAULT_ADDR: 'http://vault.example.com' });
+      expect(() => validateConfig()).toThrow('VAULT_ADDR must use https://');
+    });
+
+    it('accepts https:// UPCLOUD_BROKER_URL and VAULT_ADDR in production', () => {
+      productionEnv();
+      expect(() => validateConfig()).not.toThrow();
+    });
+
+    it('does not require https:// when ENABLE_UPCLOUD_WORKER_FACTORY is false', () => {
+      process.env['NODE_ENV'] = 'production';
+      process.env['JWT_SECRET'] = 'valid-production-jwt-secret-32-chars!!';
+      process.env['ENCRYPTION_KEY'] = 'valid-production-encryption-key-here!';
+      process.env['ENABLE_UPCLOUD_WORKER_FACTORY'] = 'false';
+      expect(() => validateConfig()).not.toThrow();
+    });
+  });
+
   it('accepts MCP_TRANSPORT values: http, stdio, sse', () => {
     for (const transport of ['http', 'stdio', 'sse'] as const) {
       process.env['MCP_TRANSPORT'] = transport;

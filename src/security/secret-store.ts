@@ -36,7 +36,14 @@ export class SecretStore {
     const encryptionKey = this.getEncryptionKey();
     const ciphertext = encrypt(value, encryptionKey);
     const expiresAt = ttlMs !== undefined ? new Date(Date.now() + ttlMs) : undefined;
-    this.secrets.set(key, { ciphertext, createdAt: new Date(), expiresAt });
+    // exactOptionalPropertyTypes: only include `expiresAt` when it has a value —
+    // assigning an explicit `undefined` to an optional (`?`) property is a type
+    // error under this flag, since `?` means "may be omitted", not "may be undefined".
+    this.secrets.set(key, {
+      ciphertext,
+      createdAt: new Date(),
+      ...(expiresAt !== undefined ? { expiresAt } : {}),
+    });
     logger.debug('Secret stored', { key, hasTtl: ttlMs !== undefined });
   }
 

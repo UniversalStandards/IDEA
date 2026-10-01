@@ -1,5 +1,5 @@
 # 🔒 Project Board 2 — Security & Compliance
-## Universal MCP Orchestration Hub — Trust, Hardening & Audit
+## Universal Standard MCP Server — Trust, Hardening & Audit
 
 > **Purpose**: Tracks every security implementation, hardening task, compliance requirement, and vulnerability management item for the platform. Separate from the feature build board by design — security work has its own cadence, ownership, and release criteria.
 
