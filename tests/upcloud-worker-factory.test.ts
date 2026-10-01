@@ -351,7 +351,10 @@ describe('UpcloudWorkerFactoryAdapter', () => {
         }),
       ).rejects.toMatchObject({ code: 'VAULT_ERROR' });
 
-      const firstScope = { toolId: 'upcloud-worker-factory', action: 'sess-partial:upcloud-worker-factory/first-path' };
+      const firstScope = {
+        toolId: 'upcloud-worker-factory',
+        action: `${encodeURIComponent('sess-partial')}:${encodeURIComponent('upcloud-worker-factory/first-path')}`,
+      };
       expect(() => credentialBroker.retrieve(firstScope, 'test')).toThrow();
 
       // The first path's underlying Vault lease must be revoked too, not
@@ -363,6 +366,69 @@ describe('UpcloudWorkerFactoryAdapter', () => {
         { lease_id: 'lease-1' },
         expect.objectContaining({ headers: { 'X-Vault-Token': 'vault-token-xyz' } }),
       );
+    });
+
+    it('retains a teardown-pending record when the compensating broker DELETE also fails after Vault leasing fails, instead of leaking it silently', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-double-fail',
+          workerId: 'worker-double-fail',
+          endpoint: 'wss://worker-double-fail.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      // The compensating rollback DELETE fails too, not just the Vault
+      // lease — before this fix, that left the allocated worker completely
+      // invisible to every reconciliation path (listPendingTeardownSessions,
+      // getStatus, shutdown), because createSession() had never added it to
+      // `this.sessions` in the first place.
+      mockBrokerClient.delete.mockRejectedValue(new Error('broker unreachable'));
+      mockedAxios.post.mockResolvedValue({
+        data: { auth: { client_token: 'vault-token-xyz', lease_duration: 3600 } },
+      });
+      mockedAxios.get.mockResolvedValue({ data: { not: 'a valid lease shape' } });
+
+      await expect(
+        adapter.createSession({
+          capability: 'desktop',
+          requestedBy: 'agent-1',
+          vaultSecretPaths: ['upcloud-worker-factory/session-creds'],
+        }),
+      ).rejects.toMatchObject({ code: 'VAULT_ERROR' });
+
+      expect(mockBrokerClient.delete).toHaveBeenCalledWith('/sessions/sess-double-fail');
+
+      // The session must now be findable and retryable, not silently gone.
+      const pending = adapter.listPendingTeardownSessions();
+      expect(pending).toHaveLength(1);
+      expect(pending[0]).toMatchObject({
+        sessionId: 'sess-double-fail',
+        workerId: 'worker-double-fail',
+        capability: 'desktop',
+        requestedBy: 'agent-1',
+        leasedCredentialScopes: [],
+        teardownPending: true,
+      });
+      expect(adapter.getSession('sess-double-fail')).toBeDefined();
+
+      // Calling endSession() later must retry only the broker-side DELETE —
+      // there is nothing left to revoke, since leaseVaultSecrets() already
+      // rolled back anything it had issued before this outer catch ran.
+      mockBrokerClient.delete.mockResolvedValueOnce({ data: {} });
+      await adapter.endSession('sess-double-fail', 'agent-1');
+      expect(adapter.listPendingTeardownSessions()).toHaveLength(0);
+      expect(adapter.getSession('sess-double-fail')).toBeUndefined();
     });
 
     it('rejects a Vault secret path containing a traversal segment, before any Vault call is made', async () => {
@@ -475,7 +541,10 @@ describe('UpcloudWorkerFactoryAdapter', () => {
         vaultSecretPaths: ['upcloud-worker-factory/session-creds'],
       });
 
-      const scope = { toolId: 'upcloud-worker-factory', action: 'sess-vault:upcloud-worker-factory/session-creds' };
+      const scope = {
+        toolId: 'upcloud-worker-factory',
+        action: `${encodeURIComponent('sess-vault')}:${encodeURIComponent('upcloud-worker-factory/session-creds')}`,
+      };
       expect(credentialBroker.retrieve(scope, 'test')).toContain('leased-secret-value');
 
       await adapter.endSession(handle.sessionId, 'agent-1');
@@ -490,6 +559,94 @@ describe('UpcloudWorkerFactoryAdapter', () => {
         { lease_id: 'lease-1' },
         expect.objectContaining({ headers: { 'X-Vault-Token': 'vault-token-xyz' } }),
       );
+    });
+
+    it('does not let two sessions with colliding unencoded sessionId:path pairs clobber each other\'s credential scope', async () => {
+      // Without per-component encoding, (sessionId='sess-a:extra',
+      // path='creds') and (sessionId='sess-a', path='extra:creds') both
+      // join to the literal string 'sess-a:extra:creds' — the exact
+      // collision Copilot's High-severity finding described. sessionId
+      // comes straight from the broker's own session-create response
+      // (BrokerSessionResponseSchema only requires z.string().min(1)), so a
+      // misbehaving or compromised broker could trigger this without the
+      // caller-supplied vault path needing to contain a colon at all.
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockedAxios.post.mockResolvedValue({
+        data: { auth: { client_token: 'vault-token-xyz', lease_duration: 3600 } },
+      });
+
+      // Session A: sessionId contains a colon; path does not.
+      mockBrokerClient.post.mockResolvedValueOnce({
+        data: {
+          sessionId: 'sess-a:extra',
+          workerId: 'worker-a',
+          endpoint: 'wss://worker-a.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockedAxios.get.mockResolvedValueOnce({
+        data: { lease_id: 'lease-a', lease_duration: 3600, data: { apiKey: 'secret-for-session-a' } },
+      });
+      const handleA = await adapter.createSession({
+        capability: 'browser',
+        requestedBy: 'agent-1',
+        vaultSecretPaths: ['creds'],
+      });
+
+      // Session B: sessionId does not contain a colon; path does — chosen
+      // so the unencoded join ('sess-a' + ':' + 'extra:creds') would equal
+      // session A's unencoded join ('sess-a:extra' + ':' + 'creds').
+      mockBrokerClient.post.mockResolvedValueOnce({
+        data: {
+          sessionId: 'sess-a',
+          workerId: 'worker-b',
+          endpoint: 'wss://worker-b.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockedAxios.get.mockResolvedValueOnce({
+        data: { lease_id: 'lease-b', lease_duration: 3600, data: { apiKey: 'secret-for-session-b' } },
+      });
+      const handleB = await adapter.createSession({
+        capability: 'browser',
+        requestedBy: 'agent-2',
+        vaultSecretPaths: ['extra:creds'],
+      });
+
+      expect(handleA.sessionId).not.toBe(handleB.sessionId);
+
+      const scopeA = {
+        toolId: 'upcloud-worker-factory',
+        action: `${encodeURIComponent('sess-a:extra')}:${encodeURIComponent('creds')}`,
+      };
+      const scopeB = {
+        toolId: 'upcloud-worker-factory',
+        action: `${encodeURIComponent('sess-a')}:${encodeURIComponent('extra:creds')}`,
+      };
+
+      // Each session's credential is independently retrievable under its
+      // own distinct, percent-encoded scope key — issuing session B's
+      // secret must not have overwritten session A's.
+      expect(scopeA.action).not.toBe(scopeB.action);
+      expect(credentialBroker.retrieve(scopeA, 'test')).toContain('secret-for-session-a');
+      expect(credentialBroker.retrieve(scopeB, 'test')).toContain('secret-for-session-b');
+
+      // Ending session A must revoke only session A's credential, not
+      // session B's — the exact blast-radius failure a collision causes.
+      mockBrokerClient.delete.mockResolvedValue({ data: {} });
+      await adapter.endSession(handleA.sessionId, 'agent-1');
+      expect(() => credentialBroker.retrieve(scopeA, 'test')).toThrow();
+      expect(credentialBroker.retrieve(scopeB, 'test')).toContain('secret-for-session-b');
     });
 
     it('revokeVaultLease() failure during endSession() is logged but does not stop teardown', async () => {
@@ -569,7 +726,7 @@ describe('UpcloudWorkerFactoryAdapter', () => {
       });
       const scope = {
         toolId: 'upcloud-worker-factory',
-        action: `${handle.sessionId}:upcloud-worker-factory/session-creds`,
+        action: `${encodeURIComponent(handle.sessionId)}:${encodeURIComponent('upcloud-worker-factory/session-creds')}`,
       };
 
       await expect(adapter.endSession(handle.sessionId, 'agent-1')).resolves.toBeUndefined();

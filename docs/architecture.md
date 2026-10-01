@@ -1,8 +1,8 @@
-# Architecture — Universal MCP Orchestration Hub
+# Architecture — Universal Standard MCP Server
 
 ## 1. System Overview
 
-The Universal MCP Orchestration Hub is a **universal capability plane** that sits between AI clients and the diverse ecosystem of tools, services, APIs, agents, and execution environments they need to operate. Rather than forcing static, manual tool configuration, the hub dynamically discovers capabilities, provisions them on demand, normalizes requests across protocol variants, enforces policy and trust boundaries, and routes work to the best available provider.
+The Universal Standard MCP Server is a **universal capability plane** that sits between AI clients and the diverse ecosystem of tools, services, APIs, agents, and execution environments they need to operate. Rather than forcing static, manual tool configuration, the hub dynamically discovers capabilities, provisions them on demand, normalizes requests across protocol variants, enforces policy and trust boundaries, and routes work to the best available provider.
 
 The platform is designed to be deployed as a single-node HTTP service (development), a Docker Compose multi-service stack (team environments), or a horizontally scaled cluster (enterprise). The same codebase serves all three with configuration-only changes.
 

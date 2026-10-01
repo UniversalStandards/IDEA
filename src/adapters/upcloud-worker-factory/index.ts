@@ -155,6 +155,33 @@ function encodeVaultSecretPath(path: string): string {
     .join('/');
 }
 
+/**
+ * Builds the credentialBroker scope `action` string for a leased Vault
+ * secret as `<sessionId>:<path>`, where both components are joined with a
+ * literal `:`. Neither component is restricted in shape: `sessionId` comes
+ * from the broker's session-create response (BrokerSessionResponseSchema
+ * only requires `z.string().min(1)`), and `path` is caller-supplied (one of
+ * WorkerSessionRequest.vaultSecretPaths). Without encoding, a `:` inside
+ * either value lets two distinct (sessionId, path) pairs collide on the
+ * same joined string — e.g. (sessionId='a:b', path='c') and
+ * (sessionId='a', path='b:c') both produce 'a:b:c' — which
+ * CredentialBroker.scopeKey() then maps to the identical storage key
+ * (`cred:upcloud-worker-factory:a:b:c`), so credentialBroker.issue()
+ * silently overwrites one session's secret with the other's, and ending
+ * either session revokes the other's still-in-use credential.
+ * `encodeURIComponent` escapes every literal `:` (and `%`, so a value
+ * can never *become* one after encoding) in each component before they are
+ * joined, making the joined string unambiguous — the same technique
+ * encodeVaultSecretPath() uses above for the same reason. The encoded
+ * action string is never parsed back into its parts (confirmed: every
+ * caller in this file and in credential-broker.ts compares or stores the
+ * whole CredentialScopeRef object rather than splitting `action`), so
+ * encoding each component independently is safe.
+ */
+function buildVaultLeaseScopeAction(sessionId: string, path: string): string {
+  return `${encodeURIComponent(sessionId)}:${encodeURIComponent(path)}`;
+}
+
 export interface WorkerSessionRequest {
   /** 'browser' for a CDP-driven Chromium session, 'desktop' for a full
    *  pixel-streamed desktop (see docs/gates — desktop is CDP's debug/view
@@ -377,12 +404,46 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
       // leaking a worker that nothing can now reach. (Any credential scopes
       // already issued for earlier paths in this same request are rolled
       // back inside leaseVaultSecrets() itself before it rethrows.)
+      let brokerRollbackFailed = false;
       await this.client.delete(`/sessions/${encodeURIComponent(broker.sessionId)}`).catch((teardownErr: unknown) => {
+        brokerRollbackFailed = true;
         logger.error('Failed to roll back broker session after Vault leasing failure', {
           sessionId: broker.sessionId,
           err: teardownErr instanceof Error ? teardownErr.message : String(teardownErr),
         });
       });
+
+      if (brokerRollbackFailed) {
+        // The compensating DELETE above also failed, so the broker-allocated
+        // worker may still be live — but this session was never added to
+        // `this.sessions` (createSession() hadn't reached that point yet),
+        // so without inserting a record here, listPendingTeardownSessions(),
+        // getStatus(), and shutdown() would have no way to ever find or
+        // retry it: the leaked worker would be permanently invisible to
+        // every reconciliation path this adapter has. Insert a
+        // teardown-pending record now, mirroring endSession()'s own
+        // broker-failure handling, even though this session was never
+        // handed back to a caller as a WorkerSessionHandle. Credential
+        // scopes are already empty here — leaseVaultSecrets() rolls back
+        // everything it issued itself before rethrowing the error this
+        // catch block is responding to.
+        this.sessions.set(broker.sessionId, {
+          sessionId: broker.sessionId,
+          workerId: broker.workerId,
+          capability: request.capability,
+          endpoint: broker.endpoint,
+          requestedBy: request.requestedBy,
+          createdAt: new Date(),
+          expiresAt: new Date(broker.expiresAt),
+          leasedCredentialScopes: [],
+          teardownPending: true,
+        });
+        metrics.increment('worker_sessions_teardown_pending_total', { capability: request.capability });
+        auditLog.record('worker_session.teardown_pending', request.requestedBy, broker.sessionId, 'pending', undefined, {
+          capability: request.capability,
+          stage: 'create_rollback',
+        });
+      }
 
       metrics.increment('worker_sessions_create_failures_total', { capability: request.capability });
       auditLog.record('worker_session.create', request.requestedBy, broker.sessionId, 'failure', undefined, {
@@ -636,7 +697,7 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
 
         const scope: CredentialScopeRef = {
           toolId: 'upcloud-worker-factory',
-          action: `${sessionId}:${path}`,
+          action: buildVaultLeaseScopeAction(sessionId, path),
           vaultLeaseId: parsed.data.lease_id,
         };
         credentialBroker.issue(scope, JSON.stringify(parsed.data.data), ttlMs);

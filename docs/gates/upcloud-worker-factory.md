@@ -178,12 +178,21 @@ other two mostly just apply conventions that already existed):
   value, ttlMs)` (`src/security/credential-broker.ts`) — the same credential
   broker every other adapter in this hub uses. That gets the worker factory,
   for free, everything `credentialBroker` already does: scope enforcement
-  (`{toolId: 'upcloud-worker-factory', action: '<sessionId>:<vaultPath>'}`),
+  (`{toolId: 'upcloud-worker-factory', action: '<encoded-sessionId>:<encoded-vaultPath>'}`),
   HMAC-signed audit entries on issue/retrieve/revoke, and rotation.
-- Scope key shape: `{ toolId: 'upcloud-worker-factory', action:
-  '<sessionId>:<vaultPath>' }` — one scope per (session, secret) pair, so
-  ending one session's lease never touches another session's secret even if
-  both leased the same Vault path.
+- **Scope key shape: `{ toolId: 'upcloud-worker-factory', action:
+  '<encoded-sessionId>:<encoded-vaultPath>' }` — one scope per (session,
+  secret) pair, so ending one session's lease never touches another
+  session's secret even if both leased the same Vault path.** `sessionId`
+  and `vaultPath` are each `encodeURIComponent`-encoded (via
+  `buildVaultLeaseScopeAction()`) before being joined with `:` — neither
+  component's shape is otherwise restricted (`sessionId` comes from the
+  broker's own session-create response, `vaultPath` is caller-supplied), so
+  without encoding a literal `:` inside either one lets two distinct
+  (session, path) pairs collide on the identical joined string and silently
+  overwrite each other's credentialBroker entry. (Updated 2026-10-01,
+  fourth correction, same day — Copilot High-severity finding; this
+  contract originally specified the unencoded join.)
 - TTL: the secret's `credentialBroker` TTL is set to the session's `ttlMs` —
   the hub's own secret store, not Vault's lease duration, is what actually
   bounds how long the plaintext value is reachable from this process. The
