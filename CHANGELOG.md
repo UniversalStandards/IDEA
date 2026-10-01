@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `docs/gates/upcloud-worker-factory.md` — the frozen v1 interface contract (auth handshake / provider registration / credential lease protocol) this hub's own open work and the UpCloud-side broker/pool build can both proceed against in parallel without blocking each other
 - `src/config.ts` — `ENABLE_UPCLOUD_WORKER_FACTORY`, `UPCLOUD_BROKER_URL`, `UPCLOUD_BROKER_API_KEY`, `WORKER_SESSION_DEFAULT_TTL_MS`, `WORKER_SESSION_MAX_TTL_MS`, `WORKER_POOL_WARM_SIZE`, `VAULT_ADDR`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`, `VAULT_SECRET_MOUNT`, plus a production guard requiring the broker/Vault vars when the feature is enabled
 - `src/types/index.ts` — `WorkerSessionCapability`, `WorkerSessionState`, `WorkerSessionHandle`, `CredentialScopeRef`
-- `tests/upcloud-worker-factory.test.ts` — 10 cases against a mocked broker/Vault HTTP surface (no live UpCloud/Vault account exists yet to integration-test against)
+- `tests/upcloud-worker-factory.test.ts` — 13 cases against a mocked broker/Vault HTTP surface (no live UpCloud/Vault account exists yet to integration-test against)
 - `src/core/runtime-manager.ts` — `upcloudWorkerFactoryAdapter` wired into `initialize()`/`shutdown()`/`getStatus()` following the existing adapter pattern; shuts down before `credentialBroker` so its own leased scopes can be revoked
 
 ### Fixed — 2026-10-01 session
@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚠️ Known issue, updated — 2026-10-01 session (PR #173 review response)
 Fixing the `admin-api.ts` index-signature issue above (needed to unblock `tests/admin-api.test.ts`) exposed a **10th** file in the same pre-existing bug family: `src/policy/approval-gates.ts` (two more `exactOptionalPropertyTypes` violations — `metadata` and `decisionNote`), imported transitively via `adminRouter.use('/approvals', approvalGates.buildRouter())`. `tests/admin-api.test.ts` therefore still cannot run through the project's normal `npm run test` (ts-jest fails the whole suite on any compile error anywhere in the file's import graph) — confirmed via an isolated diagnostic run with `isolatedModules` that all 10 tests in that file, including the 2 new ones, pass once the unrelated compile error is bypassed. This does not change anything already recommended above: a dedicated session should sweep all ~10 now-identified files for this one error class.
+
+### Fixed — 2026-10-01 session (PR #173 second review round)
+- `src/transport/middleware/auth.ts` — `isTransportAuthorized()` (the shared auth gate for the SSE, WebSocket, and gRPC transports, all of which route straight into `runtimeManager.handleRequest()` with full capability access) checked only the JWT signature, the same gap just closed in `admin-api.ts`'s `requireAuth` — a worker-session token would have passed and reached general runtime access, not just the Admin API. Now explicitly rejects `scope: 'worker-session'` tokens here too. New test file `tests/transport-auth.test.ts` (this function had zero prior coverage). (Copilot High-severity finding.)
+- `src/config.ts` — `UPCLOUD_BROKER_URL` and `VAULT_ADDR` were validated with plain `z.string().url()`, which accepts `http://`; in production both carry real credentials (`UPCLOUD_BROKER_API_KEY` / the broker's `X-API-Key` header on the former, the Vault AppRole `client_token` and every leased secret value on the latter). `validateConfig()`'s existing production guard now also rejects either one unless it starts with `https://`. Dev/test environments are unaffected — this only runs inside the existing `NODE_ENV === 'production'` block. New tests in `tests/config.test.ts`. (Copilot High-severity finding.)
+- `CHANGELOG.md` — corrected the `tests/upcloud-worker-factory.test.ts` case count (10 → 13, after the previous round's 3 additions). (Copilot Low-severity finding.)
 
 ### Added — 2026-09-10 session (`b77990f`, `8cfd69a`)
 - `src/security/secret-store.ts` — in-memory AES-256-GCM secret store with TTL expiry and `rotateEncryption()` for zero-downtime key rotation

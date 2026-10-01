@@ -165,10 +165,21 @@ export function validateConfig(): Config {
       if (!_config.UPCLOUD_BROKER_URL) {
         throw new Error('ENABLE_UPCLOUD_WORKER_FACTORY=true requires UPCLOUD_BROKER_URL in production');
       }
+      // UPCLOUD_BROKER_API_KEY and every worker-session create/delete call
+      // ride on this URL — z.string().url() alone accepts http://, which
+      // would send that credential and all session traffic in cleartext.
+      if (!_config.UPCLOUD_BROKER_URL.startsWith('https://')) {
+        throw new Error('UPCLOUD_BROKER_URL must use https:// in production (it carries the broker API key)');
+      }
       if (!_config.VAULT_ADDR || !_config.VAULT_ROLE_ID || !_config.VAULT_SECRET_ID) {
         throw new Error(
           'ENABLE_UPCLOUD_WORKER_FACTORY=true requires VAULT_ADDR, VAULT_ROLE_ID, and VAULT_SECRET_ID in production',
         );
+      }
+      // The AppRole secret_id, the resulting client_token, and every leased
+      // secret value flow over this URL — same reasoning as above.
+      if (_config.VAULT_ADDR && !_config.VAULT_ADDR.startsWith('https://')) {
+        throw new Error('VAULT_ADDR must use https:// in production (it carries Vault auth tokens and leased secrets)');
       }
     }
   }
