@@ -355,3 +355,42 @@ export interface WorkflowState {
   readonly updatedAt: Date;
   readonly error?: string;
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Worker Session (UpCloud Worker Factory — ephemeral browser/desktop
+// sessions for agents with no local device/browser available)
+// See docs/gates/upcloud-worker-factory.md for the full interface contract.
+// ─────────────────────────────────────────────────────────────────
+
+export type WorkerSessionCapability = 'browser' | 'desktop';
+
+/** Internal record of a live worker session, held by the adapter. */
+export interface WorkerSessionState {
+  readonly sessionId: string;
+  readonly workerId: string;
+  readonly capability: WorkerSessionCapability;
+  readonly endpoint: string;
+  readonly requestedBy: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+  /** credentialBroker scopes leased for this session — revoked together on end. */
+  readonly leasedCredentialScopes: CredentialScopeRef[];
+}
+
+/** Minimal scope reference — mirrors security/credential-broker.ts's CredentialScope
+ *  without importing from security/ into the shared types module. */
+export interface CredentialScopeRef {
+  readonly toolId: string;
+  readonly action?: string;
+}
+
+/** What is handed back to the caller after a session is created. Never
+ *  includes leased secret values — only a connection endpoint and a
+ *  worker-session-scoped bearer token. */
+export interface WorkerSessionHandle {
+  readonly sessionId: string;
+  readonly endpoint: string;
+  readonly token: string;
+  readonly expiresAt: Date;
+  readonly capability: WorkerSessionCapability;
+}

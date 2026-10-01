@@ -13,6 +13,7 @@ import { eventsAdapter } from '../adapters/events/index';
 import { graphqlAdapter } from '../adapters/graphql/index';
 import { cliAdapter } from '../adapters/cli/index';
 import { credentialBroker } from '../security/credential-broker';
+import { upcloudWorkerFactoryAdapter } from '../adapters/upcloud-worker-factory/index';
 
 const logger = createLogger('runtime-manager');
 
@@ -64,6 +65,7 @@ export class RuntimeManager {
       await graphqlAdapter.initialize();
       await cliAdapter.initialize();
       await credentialBroker.initialize();
+      await upcloudWorkerFactoryAdapter.initialize();
       logger.info('Adapters and credential broker ready');
 
       metrics.increment('runtime_initializations_total');
@@ -98,12 +100,15 @@ export class RuntimeManager {
 
     providerRouter.stopHealthChecks();
 
-    // Shut down adapters in reverse dependency order — credential broker last
-    // among adapters so any in-flight tool call still draining can retrieve
-    // a credential it already holds a scope for.
+    // Shut down adapters in reverse dependency order. upcloudWorkerFactory
+    // revokes its own leased credential scopes as part of its shutdown, so it
+    // must run before credentialBroker — which stays last among adapters so
+    // any other in-flight tool call still draining can retrieve a credential
+    // it already holds a scope for.
     await eventsAdapter.shutdown();
     await graphqlAdapter.shutdown();
     await cliAdapter.shutdown();
+    await upcloudWorkerFactoryAdapter.shutdown();
     await credentialBroker.shutdown();
 
     metrics.increment('runtime_shutdowns_total');
@@ -163,6 +168,11 @@ export class RuntimeManager {
         name: 'credential-broker',
         healthy: true,
         detail: `${credentialBroker.listHandles().length} credential handles`,
+      },
+      {
+        name: 'upcloud-worker-factory',
+        healthy: true,
+        detail: `${upcloudWorkerFactoryAdapter.listSessions().length} active worker sessions`,
       },
     ];
 

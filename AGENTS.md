@@ -1,10 +1,16 @@
-# AGENTS.md — Universal MCP Orchestration Hub
+# AGENTS.md — Universal Standard MCP Server
 ## GitHub Codex Instruction Manifest
 
 > **Audience**: AI coding agents (GitHub Codex, Copilot Workspace, Claude Code, Cursor, etc.)  
 > **Authority**: This file is the single source of truth for all automated and AI-assisted work on this repository.  
-> **Last updated**: 2026-04-09  
+> **Last updated**: 2026-10-01  
 > **Status**: Active — read this file in full before touching any code.
+>
+> Formerly "Universal MCP Orchestration Hub" / repo nickname "IDEA" — renamed
+> per Director authorization 2026-10-01. The GitHub repo slug
+> (`UniversalStandards/IDEA`) is unchanged in this pass; only product
+> branding (README, package.json, this header) was renamed. See
+> `CHANGELOG.md` [Unreleased] and `.github/MASTER_TRACKER.md` session log.
 
 ---
 

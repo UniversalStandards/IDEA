@@ -135,15 +135,17 @@ export class EnterpriseCatalogConnector implements IRegistryConnector {
       });
       return [];
     }
+    // exactOptionalPropertyTypes: DiscoveredTool's optional fields must be
+    // omitted entirely when absent, not assigned an explicit `undefined`.
     return result.data.tools.map((t: CatalogTool) => ({
       name: t.name,
       version: t.version,
       description: t.description,
       source: RegistrySource.ENTERPRISE,
-      packageName: t.packageName,
-      repositoryUrl: t.repositoryUrl,
+      ...(t.packageName !== undefined ? { packageName: t.packageName } : {}),
+      ...(t.repositoryUrl !== undefined ? { repositoryUrl: t.repositoryUrl } : {}),
       tags: t.tags,
-      trustScore: t.trustScore,
+      ...(t.trustScore !== undefined ? { trustScore: t.trustScore } : {}),
       metadata: t.metadata,
     }));
   }
