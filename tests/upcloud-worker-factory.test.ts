@@ -485,6 +485,96 @@ describe('UpcloudWorkerFactoryAdapter', () => {
       await expect(adapter.endSession(handle.sessionId, 'agent-1')).resolves.toBeUndefined();
       expect(adapter.listSessions()).toHaveLength(0);
     });
+
+    it('retains the session as teardown-pending when the broker teardown call fails, instead of discarding it', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-broker-delete-fails',
+          workerId: 'worker-broker-delete-fails',
+          endpoint: 'wss://worker-broker-delete-fails.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockBrokerClient.delete.mockRejectedValue(new Error('broker unreachable'));
+      mockedAxios.post.mockResolvedValue({
+        data: { auth: { client_token: 'vault-token-xyz', lease_duration: 3600 } },
+      });
+      mockedAxios.get.mockResolvedValue({
+        data: { lease_id: 'lease-1', lease_duration: 3600, data: { apiKey: 'leased-secret-value' } },
+      });
+
+      const handle = await adapter.createSession({
+        capability: 'browser',
+        requestedBy: 'agent-1',
+        vaultSecretPaths: ['upcloud-worker-factory/session-creds'],
+      });
+      const scope = {
+        toolId: 'upcloud-worker-factory',
+        action: `${handle.sessionId}:upcloud-worker-factory/session-creds`,
+      };
+
+      await expect(adapter.endSession(handle.sessionId, 'agent-1')).resolves.toBeUndefined();
+
+      // Credentials are revoked unconditionally, regardless of the broker
+      // call's outcome — a leased secret must not outlive its session just
+      // because the remote worker couldn't be reached.
+      expect(() => credentialBroker.retrieve(scope, 'test')).toThrow();
+      expect(mockedAxios.put).toHaveBeenCalledWith(
+        'https://vault.example.internal/v1/sys/leases/revoke',
+        { lease_id: 'lease-1' },
+        expect.objectContaining({ headers: { 'X-Vault-Token': 'vault-token-xyz' } }),
+      );
+
+      // But the session itself is retained, not silently dropped, so the
+      // still-possibly-live remote worker isn't forgotten about.
+      expect(adapter.listSessions()).toHaveLength(1);
+      const pending = adapter.getSession(handle.sessionId);
+      expect(pending?.teardownPending).toBe(true);
+      expect(pending?.leasedCredentialScopes).toHaveLength(0);
+      expect(adapter.listPendingTeardownSessions().map((s) => s.sessionId)).toEqual([handle.sessionId]);
+    });
+
+    it('retrying endSession() after a teardown-pending failure completes teardown once the broker call succeeds', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-broker-delete-retry',
+          workerId: 'worker-broker-delete-retry',
+          endpoint: 'wss://worker-broker-delete-retry.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+
+      const handle = await adapter.createSession({ capability: 'browser', requestedBy: 'agent-1' });
+
+      mockBrokerClient.delete.mockRejectedValueOnce(new Error('broker unreachable'));
+      await adapter.endSession(handle.sessionId, 'agent-1');
+      expect(adapter.listPendingTeardownSessions()).toHaveLength(1);
+
+      mockBrokerClient.delete.mockResolvedValueOnce({ data: {} });
+      await adapter.endSession(handle.sessionId, 'agent-1');
+
+      expect(adapter.listSessions()).toHaveLength(0);
+      expect(adapter.listPendingTeardownSessions()).toHaveLength(0);
+    });
   });
 
   describe('verifySessionToken()', () => {

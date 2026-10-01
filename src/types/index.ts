@@ -375,6 +375,14 @@ export interface WorkerSessionState {
   readonly expiresAt: Date;
   /** credentialBroker scopes leased for this session — revoked together on end. */
   readonly leasedCredentialScopes: CredentialScopeRef[];
+  /** Set when endSession()'s broker-side teardown call failed: credentials
+   *  for this session have already been revoked (leasedCredentialScopes is
+   *  cleared once that happens), but the remote worker and its session
+   *  token may still be live, and local bookkeeping is retained — rather
+   *  than discarded — so a caller (or a reconciliation job) can retry by
+   *  calling endSession() again instead of the failure being silently
+   *  forgotten. Absent/false for an ordinary, not-yet-ended session. */
+  readonly teardownPending?: boolean;
 }
 
 /** Minimal scope reference — mirrors security/credential-broker.ts's CredentialScope

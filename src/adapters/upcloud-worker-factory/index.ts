@@ -387,9 +387,23 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
 
   /**
    * End a session: tear down the broker-side worker, revoke every credential
-   * scope leased for it, and drop local state. Revocation happens even if
-   * the broker call fails, so a leased secret never outlives its session
-   * purely because the worker was already gone.
+   * scope leased for it, and drop local state.
+   *
+   * Credential revocation is unconditional — it runs even if the broker's
+   * own session-teardown HTTP call fails, so a leased secret never outlives
+   * its session purely because the remote worker was already gone (see Gate
+   * 3 in docs/gates/upcloud-worker-factory.md).
+   *
+   * A failed broker-side teardown is a *different* kind of failure from a
+   * failed credential revocation, though: the remote worker and its
+   * still-valid session token may remain live and reachable. Previously
+   * this was logged and the session was dropped from local state anyway —
+   * which silently discarded the only record that the worker still needed
+   * tearing down, with no way to retry. Now, on a broker-teardown failure,
+   * the session is retained (marked `teardownPending`, with its credential
+   * scopes cleared since those are already revoked) instead of deleted —
+   * calling endSession() again for the same sessionId retries only the
+   * broker-side DELETE, since there is nothing left to revoke.
    */
   async endSession(sessionId: string, endedBy: string): Promise<void> {
     const state = this.sessions.get(sessionId);
@@ -398,14 +412,21 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
       return;
     }
 
+    let brokerTeardownFailed = false;
     if (this.client) {
       try {
         await this.client.delete(`/sessions/${encodeURIComponent(sessionId)}`);
       } catch (err) {
-        logger.warn('Broker session teardown request failed (continuing with local cleanup)', {
-          sessionId,
-          err: err instanceof Error ? err.message : String(err),
-        });
+        brokerTeardownFailed = true;
+        logger.warn(
+          'Broker session teardown request failed — the remote worker and its session token ' +
+            'may remain live; retaining session as teardown-pending for a retry (credentials are ' +
+            'still revoked now, unconditionally)',
+          {
+            sessionId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     }
 
@@ -414,6 +435,16 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
       if (scope.vaultLeaseId) {
         await this.revokeVaultLease(scope.vaultLeaseId, sessionId);
       }
+    }
+
+    if (brokerTeardownFailed) {
+      this.sessions.set(sessionId, { ...state, leasedCredentialScopes: [], teardownPending: true });
+      metrics.increment('worker_sessions_teardown_pending_total', { capability: state.capability });
+      auditLog.record('worker_session.teardown_pending', endedBy, sessionId, 'pending', undefined, {
+        capability: state.capability,
+        revokedCredentialScopes: state.leasedCredentialScopes.length,
+      });
+      return;
     }
 
     this.sessions.delete(sessionId);
@@ -433,6 +464,17 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
 
   listSessions(): WorkerSessionState[] {
     return Array.from(this.sessions.values());
+  }
+
+  /**
+   * Sessions whose broker-side teardown failed and are awaiting a retry.
+   * Their leased credentials have already been revoked — only the remote
+   * broker DELETE itself still needs to succeed. Call endSession() again
+   * with the same sessionId to retry; a future reconciliation job can use
+   * this to find work without needing its own separate tracking.
+   */
+  listPendingTeardownSessions(): WorkerSessionState[] {
+    return Array.from(this.sessions.values()).filter((s) => s.teardownPending === true);
   }
 
   // ─────────────────────────────────────────────────────────────

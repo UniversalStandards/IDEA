@@ -53,17 +53,51 @@ over a fixed, versioned context string; see `src/adapters/upcloud-worker-factory
 }
 ```
 
-A verifier that needs to validate a worker-session token independently of
-this hub's own `verifySessionToken()` (e.g. a future UpCloud-side component)
-**must** compute `deriveWorkerSessionKey(JWT_SECRET)` itself, not use
-`JWT_SECRET` directly — verifying with `JWT_SECRET` will reject every
-genuine worker-session token outright (signature mismatch), which is the
-point: it means every *other* verifier in this hub that already checks
-straight against `JWT_SECRET` rejects a worker-session token for free, with
-no per-verifier opt-in required. `verifySessionToken()` additionally rejects
-any token whose `scope` is not `'worker-session'` as defense-in-depth — an
-admin-api token cannot be replayed as a worker-session token and vice versa,
-even setting the key difference aside.
+> **Updated 2026-10-01 (second correction, same day)** — the paragraph below
+> originally told a future external verifier to "compute
+> `deriveWorkerSessionKey(JWT_SECRET)` itself," which means handing that
+> verifier `JWT_SECRET` so it can do the derivation locally. A review of this
+> PR correctly flagged that this defeats the entire point of key
+> derivation: an external component holding `JWT_SECRET` is one compromise
+> away from an attacker minting admin-api and runtime tokens too, not just
+> worker-session ones — exactly the blast-radius expansion key separation
+> exists to prevent. Corrected in place for the same reason as the first
+> correction above: no UpCloud-side build exists against the old text yet.
+
+Every verifier *inside this hub* already holds `JWT_SECRET` via
+`getConfig()` and computes `deriveWorkerSessionKey(JWT_SECRET)` itself — that
+part is unchanged and is exactly how `verifySessionToken()`,
+`api/admin-api.ts`, `transport/middleware/auth.ts`, and
+`multitenancy/TenantMiddleware.ts` all reject a worker-session token for
+free, with no per-verifier opt-in required (signature mismatch against the
+hub-wide secret).
+
+A verifier *outside* this hub (e.g. a future UpCloud-side component) is a
+different case: it **must never be given `JWT_SECRET`**, under any
+circumstance, to derive the worker key itself. Instead, the hub computes
+`deriveWorkerSessionKey(JWT_SECRET)` once, on its own side, and provisions
+*only that resulting derived value* to the external verifier as its own
+independent secret — out-of-band (e.g. through Vault), the same way any
+other cross-system shared secret is distributed, never by handing over
+`JWT_SECRET` itself for the far side to derive from. The external verifier
+then calls `jwt.verify(token, <provisioned derived key>)` directly; it holds
+that one derived value and nothing else, so its compromise exposes only
+worker-session validation, not `JWT_SECRET` or anything signed with it.
+
+A stronger option worth adopting before any UpCloud-side build actually
+starts relying on this gate: switch worker-session tokens to asymmetric
+signing (RS256/EdDSA) so only a *public* key is ever distributed externally.
+Compromise of an external verifier then exposes nothing usable to mint a new
+token at all, closing even the "stolen derived key" exposure the symmetric
+approach above still carries. This is **not required** for the current,
+hub-internal-only implementation (nothing external exists yet to provision
+either value to), but should be the default design for whoever builds the
+real UpCloud-side verifier.
+
+`verifySessionToken()` additionally rejects any token whose `scope` is not
+`'worker-session'` as defense-in-depth — an admin-api token cannot be
+replayed as a worker-session token and vice versa, even setting the key
+difference aside.
 
 A subagent the calling agent dispatches gets **its own** token (its own
 `createSession()` call, its own `sub`), never a shared one — ending one
@@ -139,7 +173,11 @@ other two mostly just apply conventions that already existed):
   endedBy)` for every scope it leased — this is unconditional and runs even
   if the broker's own session-teardown HTTP call fails, so a leased secret
   never outlives its session purely because the remote worker was already
-  gone.
+  gone. If the broker call itself fails, local session bookkeeping is kept
+  (marked `teardownPending`, credential scopes cleared since they're already
+  revoked) rather than discarded, specifically so the still-possibly-live
+  remote worker isn't silently forgotten about — calling `endSession()`
+  again retries only the broker-side teardown.
 
 This means a future question like "does this session's Vault secret still
 work after the session ends" has one, observable answer:
