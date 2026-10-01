@@ -22,8 +22,22 @@ export const healthRouter = Router();
 const startedAt = Date.now();
 
 function buildHealthResponse(ready: boolean): HealthStatus {
+  // getStatus() reads each subsystem's own in-memory state (lists/maps), not
+  // anything that requires the runtime to be fully initialized, so it is
+  // safe to call here even when `ready` is false.
+  const runtimeStatus = runtimeManager.getStatus();
+  const workerFactory = runtimeStatus.subsystems.find((s) => s.name === 'upcloud-worker-factory');
+  // A worker session stuck in teardownPending (see
+  // src/adapters/upcloud-worker-factory/index.ts) is a real operational
+  // fault — a leaked remote worker — but it is scoped to one adapter, not a
+  // reason to fail the whole hub's readiness probe and pull it out of
+  // rotation. Surface it as a non-fatal 'degraded' check instead of flipping
+  // GET /health/ready's 200/503 outcome, which stays tied to
+  // isInitialized() alone.
+  const workerFactoryHealthy = workerFactory?.healthy ?? true;
+
   return {
-    status: ready ? 'ok' : 'degraded',
+    status: !ready ? 'degraded' : workerFactoryHealthy ? 'ok' : 'degraded',
     version,
     nodeVersion: process.version,
     environment: process.env['NODE_ENV'] ?? 'unknown',
@@ -37,6 +51,10 @@ function buildHealthResponse(ready: boolean): HealthStatus {
       memory: {
         status: 'ok',
         message: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB heap used`,
+      },
+      workerFactory: {
+        status: workerFactoryHealthy ? 'ok' : 'degraded',
+        message: workerFactory?.detail ?? 'upcloud-worker-factory adapter disabled or not yet initialized',
       },
     },
   };
