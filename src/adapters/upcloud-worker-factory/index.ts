@@ -44,10 +44,24 @@ const logger = createLogger('upcloud-worker-factory');
 // schema these back).
 // ─────────────────────────────────────────────────────────────────
 
+/**
+ * The broker's own `endpoint` is a CDP debug URL for the allocated worker —
+ * `z.string().url()` alone would also accept `http(s)://`, `file://`, or any
+ * other scheme a misbehaving or compromised broker response could return,
+ * and that string is handed straight back to the caller as something to
+ * connect to. Require the one scheme this is ever meant to be: `wss://`.
+ */
+const SecureWorkerEndpointSchema = z
+  .string()
+  .url()
+  .refine((value) => value.startsWith('wss://'), {
+    message: 'Worker endpoint must be a secure WebSocket URL (wss://)',
+  });
+
 const BrokerSessionResponseSchema = z.object({
   sessionId: z.string().min(1),
   workerId: z.string().min(1),
-  endpoint: z.string().url(), // wss:// CDP endpoint on the allocated worker
+  endpoint: SecureWorkerEndpointSchema,
   expiresAt: z.string().datetime(),
 });
 
@@ -225,11 +239,44 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
       );
     }
 
-    const leasedCredentialScopes = await this.leaseVaultSecrets(
-      broker.sessionId,
-      request.vaultSecretPaths ?? [],
-      ttlMs,
-    );
+    let leasedCredentialScopes: CredentialScopeRef[];
+    try {
+      leasedCredentialScopes = await this.leaseVaultSecrets(
+        broker.sessionId,
+        request.vaultSecretPaths ?? [],
+        ttlMs,
+      );
+    } catch (err) {
+      // The broker already allocated a worker for this session before Vault
+      // leasing ran — if leasing fails now (bad Vault credentials, a schema
+      // mismatch, a later path in a multi-secret request failing after
+      // earlier ones succeeded), nothing has added this session to
+      // `this.sessions` yet, so neither endSession() nor shutdown() could
+      // ever find it. Roll the allocation back explicitly rather than
+      // leaking a worker that nothing can now reach. (Any credential scopes
+      // already issued for earlier paths in this same request are rolled
+      // back inside leaseVaultSecrets() itself before it rethrows.)
+      await this.client.delete(`/sessions/${encodeURIComponent(broker.sessionId)}`).catch((teardownErr: unknown) => {
+        logger.error('Failed to roll back broker session after Vault leasing failure', {
+          sessionId: broker.sessionId,
+          err: teardownErr instanceof Error ? teardownErr.message : String(teardownErr),
+        });
+      });
+
+      metrics.increment('worker_sessions_create_failures_total', { capability: request.capability });
+      auditLog.record('worker_session.create', request.requestedBy, broker.sessionId, 'failure', undefined, {
+        capability: request.capability,
+        stage: 'vault_lease',
+        err: err instanceof Error ? err.message : String(err),
+      });
+
+      throw err instanceof UpcloudWorkerFactoryError
+        ? err
+        : new UpcloudWorkerFactoryError(
+            `Failed to lease credentials for worker session: ${err instanceof Error ? err.message : String(err)}`,
+            'VAULT_ERROR',
+          );
+    }
 
     const token = this.mintSessionToken(broker.sessionId, request.requestedBy, [request.capability], ttlMs);
 
@@ -372,28 +419,39 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
     const token = await this.ensureVaultToken();
     const scopes: CredentialScopeRef[] = [];
 
-    for (const path of vaultPaths) {
-      const resp = await axios.get<unknown>(`${cfg.VAULT_ADDR}/v1/${cfg.VAULT_SECRET_MOUNT}/${path}`, {
-        headers: { 'X-Vault-Token': token },
-        timeout: 10_000,
-      });
-      const parsed = VaultLeaseResponseSchema.safeParse(resp.data);
-      if (!parsed.success) {
-        throw new UpcloudWorkerFactoryError(
-          `Vault returned an unexpected lease shape for '${path}': ${parsed.error.message}`,
-          'VAULT_ERROR',
-        );
+    try {
+      for (const path of vaultPaths) {
+        const resp = await axios.get<unknown>(`${cfg.VAULT_ADDR}/v1/${cfg.VAULT_SECRET_MOUNT}/${path}`, {
+          headers: { 'X-Vault-Token': token },
+          timeout: 10_000,
+        });
+        const parsed = VaultLeaseResponseSchema.safeParse(resp.data);
+        if (!parsed.success) {
+          throw new UpcloudWorkerFactoryError(
+            `Vault returned an unexpected lease shape for '${path}': ${parsed.error.message}`,
+            'VAULT_ERROR',
+          );
+        }
+
+        const scope: CredentialScopeRef = { toolId: 'upcloud-worker-factory', action: `${sessionId}:${path}` };
+        credentialBroker.issue(scope, JSON.stringify(parsed.data.data), ttlMs);
+        scopes.push(scope);
+
+        logger.debug('Vault secret leased into credential broker', {
+          sessionId,
+          path,
+          leaseId: parsed.data.lease_id,
+        });
       }
-
-      const scope: CredentialScopeRef = { toolId: 'upcloud-worker-factory', action: `${sessionId}:${path}` };
-      credentialBroker.issue(scope, JSON.stringify(parsed.data.data), ttlMs);
-      scopes.push(scope);
-
-      logger.debug('Vault secret leased into credential broker', {
-        sessionId,
-        path,
-        leaseId: parsed.data.lease_id,
-      });
+    } catch (err) {
+      // A multi-secret request that fails partway through must not leave
+      // the secrets already issued for earlier paths live with nothing able
+      // to reach — or later revoke — them: this request is about to fail
+      // end-to-end, so roll back everything it issued before propagating.
+      for (const scope of scopes) {
+        credentialBroker.revoke(scope, 'system:rollback');
+      }
+      throw err;
     }
 
     return scopes;

@@ -120,6 +120,51 @@ describe('Admin API — Authentication Middleware', () => {
   });
 });
 
+describe('Admin API — worker-session tokens are rejected', () => {
+  // requireAuth is not exported directly, but it is registered as the very
+  // first middleware layer on adminRouter (`adminRouter.use(requireAuth)`,
+  // before any route is mounted) — grab it from the router's own stack so
+  // this test drives the real middleware rather than re-deriving its logic.
+  function requireAuthHandle(): (req: unknown, res: unknown, next: unknown) => void {
+    const layer = (adminRouter as unknown as { stack: Array<{ handle: (req: unknown, res: unknown, next: unknown) => void }> })
+      .stack[0];
+    if (!layer) {
+      throw new Error('adminRouter has no middleware layers — requireAuth registration may have moved');
+    }
+    return layer.handle;
+  }
+
+  it('rejects a worker-session-scoped token with 403, even though it is validly signed', () => {
+    const workerToken = jwt.sign(
+      { sub: 'agent-1', scope: 'worker-session', sessionId: 'sess-abc', capabilities: ['browser'] },
+      JWT_SECRET,
+      { expiresIn: '15m' },
+    );
+    const req = makeReq({ headers: { authorization: `Bearer ${workerToken}` } });
+    const res = makeRes();
+    const next = jest.fn();
+
+    requireAuthHandle()(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ error: expect.stringContaining('Worker-session tokens are not authorized') }),
+    );
+  });
+
+  it('still accepts an ordinary admin token with no worker-session scope', () => {
+    const req = makeReq({ headers: { authorization: `Bearer ${validToken()}` } });
+    const res = makeRes();
+    const next = jest.fn();
+
+    requireAuthHandle()(req, res, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+});
+
 describe('Admin API — Route Logic', () => {
   it('adminRouter is an Express router function', () => {
     expect(typeof adminRouter).toBe('function');

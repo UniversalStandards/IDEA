@@ -21,6 +21,13 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 const JWT_SECRET = 'test-secret-that-is-32-characters-long!!';
 const ENCRYPTION_KEY = 'test-encryption-key-32-characters!!';
 
+// AGENTS.md §8 (Testing): "no Date.now() ... without mocking." Several
+// fixtures below build an `expiresAt` relative to "now" (and the adapter
+// itself reads Date.now() internally for duration metrics and Vault-token
+// caching) — pin the clock so every one of those reads is deterministic
+// rather than depending on wall-clock time at test-run time.
+const FIXED_NOW = new Date('2026-01-01T00:00:00.000Z').getTime();
+
 function baseEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
   return {
     NODE_ENV: 'test',
@@ -35,6 +42,7 @@ describe('UpcloudWorkerFactoryAdapter', () => {
   let mockBrokerClient: { post: jest.Mock; get: jest.Mock; delete: jest.Mock };
 
   beforeEach(() => {
+    jest.useFakeTimers({ now: FIXED_NOW });
     mockBrokerClient = { post: jest.fn(), get: jest.fn(), delete: jest.fn() };
     mockedAxios.create.mockReturnValue(mockBrokerClient as unknown as ReturnType<typeof axios.create>);
     mockedAxios.post.mockReset();
@@ -48,6 +56,7 @@ describe('UpcloudWorkerFactoryAdapter', () => {
     process.env = originalEnv;
     _resetConfig();
     jest.clearAllMocks();
+    jest.useRealTimers();
   });
 
   describe('initialize() / shutdown()', () => {
@@ -184,6 +193,112 @@ describe('UpcloudWorkerFactoryAdapter', () => {
       await expect(
         adapter.createSession({ capability: 'browser', requestedBy: 'agent-1' }),
       ).rejects.toMatchObject({ code: 'BROKER_ERROR' });
+    });
+
+    it('rejects a broker endpoint that is not a secure WebSocket URL', async () => {
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-insecure',
+          workerId: 'worker-insecure',
+          // A compromised or misbehaving broker could return any scheme —
+          // https:// (or file://, etc.) must be rejected, not just blindly
+          // trusted and handed back as something to connect to.
+          endpoint: 'https://worker-insecure.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+
+      await expect(
+        adapter.createSession({ capability: 'browser', requestedBy: 'agent-1' }),
+      ).rejects.toMatchObject({ code: 'BROKER_ERROR' });
+    });
+
+    it('rolls back the broker session when Vault leasing fails after allocation', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-rollback',
+          workerId: 'worker-rollback',
+          endpoint: 'wss://worker-rollback.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockBrokerClient.delete.mockResolvedValue({ data: {} });
+      // Vault AppRole login succeeds, but the lease response itself fails
+      // schema validation — leasing fails *after* the broker already
+      // allocated a worker for this session.
+      mockedAxios.post.mockResolvedValue({
+        data: { auth: { client_token: 'vault-token-xyz', lease_duration: 3600 } },
+      });
+      mockedAxios.get.mockResolvedValue({ data: { not: 'a valid lease shape' } });
+
+      await expect(
+        adapter.createSession({
+          capability: 'browser',
+          requestedBy: 'agent-1',
+          vaultSecretPaths: ['upcloud-worker-factory/session-creds'],
+        }),
+      ).rejects.toMatchObject({ code: 'VAULT_ERROR' });
+
+      // The allocated worker must not be leaked: its broker session is torn
+      // down, and the session never shows up as something endSession() or
+      // shutdown() could find later.
+      expect(mockBrokerClient.delete).toHaveBeenCalledWith('/sessions/sess-rollback');
+      expect(adapter.listSessions()).toHaveLength(0);
+    });
+
+    it('rolls back earlier-leased scopes when a later path in a multi-secret request fails', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+        VAULT_ADDR: 'https://vault.example.internal',
+        VAULT_ROLE_ID: 'role-123',
+        VAULT_SECRET_ID: 'secret-123',
+      });
+      _resetConfig();
+      adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-partial',
+          workerId: 'worker-partial',
+          endpoint: 'wss://worker-partial.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+      mockBrokerClient.delete.mockResolvedValue({ data: {} });
+      mockedAxios.post.mockResolvedValue({
+        data: { auth: { client_token: 'vault-token-xyz', lease_duration: 3600 } },
+      });
+      // First path leases successfully; second path's response fails schema
+      // validation — the first path's credential must not be left live.
+      mockedAxios.get
+        .mockResolvedValueOnce({
+          data: { lease_id: 'lease-1', lease_duration: 3600, data: { apiKey: 'first-secret-value' } },
+        })
+        .mockResolvedValueOnce({ data: { not: 'a valid lease shape' } });
+
+      await expect(
+        adapter.createSession({
+          capability: 'browser',
+          requestedBy: 'agent-1',
+          vaultSecretPaths: ['upcloud-worker-factory/first-path', 'upcloud-worker-factory/second-path'],
+        }),
+      ).rejects.toMatchObject({ code: 'VAULT_ERROR' });
+
+      const firstScope = { toolId: 'upcloud-worker-factory', action: 'sess-partial:upcloud-worker-factory/first-path' };
+      expect(() => credentialBroker.retrieve(firstScope, 'test')).toThrow();
     });
 
     it('leases Vault secrets into credentialBroker and revokes them on endSession()', async () => {
