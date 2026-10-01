@@ -18,11 +18,13 @@ export function isTransportAuthorized(options: TransportAuthOptions): boolean {
   try {
     const decoded = jwt.verify(token, options.config.JWT_SECRET);
 
-    // Every bearer token this hub issues is signed with the same JWT_SECRET,
-    // so a valid signature alone is not "authorized for general runtime
-    // access" — a worker-session token (see
-    // adapters/upcloud-worker-factory/index.ts) is scoped to a single
-    // browser/desktop session's own lifecycle calls and must not be
+    // Worker-session tokens (see adapters/upcloud-worker-factory/index.ts)
+    // are signed with deriveWorkerSessionKey(JWT_SECRET), not JWT_SECRET
+    // itself, so jwt.verify() above already throws on a genuine
+    // worker-session token before this point is reached. This explicit
+    // scope check is defense-in-depth — it still catches a token that was
+    // (incorrectly) signed with JWT_SECRET directly and carries a
+    // worker-session scope claim, so a worker-session token can never be
     // replayable here to reach runtimeManager.handleRequest with full
     // capability access via SSE/WebSocket/gRPC. Mirrors the same check in
     // api/admin-api.ts's requireAuth.

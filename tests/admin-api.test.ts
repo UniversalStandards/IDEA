@@ -35,6 +35,7 @@ jest.mock('../src/core/runtime-manager', () => ({
 
 import jwt from 'jsonwebtoken';
 import { adminRouter } from '../src/api/admin-api';
+import { deriveWorkerSessionKey } from '../src/adapters/upcloud-worker-factory/index';
 
 type MockReq = {
   headers: Record<string, string>;
@@ -162,6 +163,28 @@ describe('Admin API — worker-session tokens are rejected', () => {
 
     expect(next).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('rejects a genuine worker-session token (signed with the derived key) at signature verification, before the scope check even runs', () => {
+    // A real token from the adapter is signed with
+    // deriveWorkerSessionKey(JWT_SECRET), not JWT_SECRET — so
+    // jwt.verify(token, cfg.JWT_SECRET) in requireAuth throws outright
+    // (401), and the 403 scope-check path above is never reached. Both
+    // outcomes keep a worker-session token out of the Admin API; this test
+    // covers the one that actually happens for real tokens today.
+    const realWorkerToken = jwt.sign(
+      { sub: 'agent-1', scope: 'worker-session', sessionId: 'sess-abc', capabilities: ['browser'] },
+      deriveWorkerSessionKey(JWT_SECRET),
+      { expiresIn: '15m' },
+    );
+    const req = makeReq({ headers: { authorization: `Bearer ${realWorkerToken}` } });
+    const res = makeRes();
+    const next = jest.fn();
+
+    requireAuthHandle()(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
   });
 });
 

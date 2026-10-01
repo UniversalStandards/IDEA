@@ -12,7 +12,11 @@
 import jwt from 'jsonwebtoken';
 import axios from 'axios';
 import { _resetConfig } from '../src/config';
-import { UpcloudWorkerFactoryAdapter, UpcloudWorkerFactoryError } from '../src/adapters/upcloud-worker-factory/index';
+import {
+  UpcloudWorkerFactoryAdapter,
+  UpcloudWorkerFactoryError,
+  deriveWorkerSessionKey,
+} from '../src/adapters/upcloud-worker-factory/index';
 import { credentialBroker } from '../src/security/credential-broker';
 
 jest.mock('axios');
@@ -353,9 +357,80 @@ describe('UpcloudWorkerFactoryAdapter', () => {
       const adapter = new UpcloudWorkerFactoryAdapter();
       await adapter.initialize();
 
-      const foreignToken = jwt.sign({ sub: 'someone', scope: 'admin-api' }, JWT_SECRET, { expiresIn: '5m' });
+      // Signed with the correct (derived) worker-session key so it passes
+      // signature verification — this test is specifically about the
+      // `scope` check, not about key separation (see the test below for
+      // that).
+      const foreignToken = jwt.sign(
+        { sub: 'someone', scope: 'admin-api' },
+        deriveWorkerSessionKey(JWT_SECRET),
+        { expiresIn: '5m' },
+      );
 
       expect(() => adapter.verifySessionToken(foreignToken)).toThrow('not scoped for worker-session');
+    });
+
+    it('rejects a token signed with JWT_SECRET directly, even with a worker-session scope claim', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+      });
+      _resetConfig();
+      const adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      // If something ever signed a worker-session-shaped token with the
+      // hub's general JWT_SECRET instead of the derived key, it must still
+      // not verify here — the whole point of key separation.
+      const wrongKeyToken = jwt.sign(
+        { sub: 'someone', scope: 'worker-session', sessionId: 'sess-x', capabilities: ['browser'] },
+        JWT_SECRET,
+        { expiresIn: '5m' },
+      );
+
+      expect(() => adapter.verifySessionToken(wrongKeyToken)).toThrow();
+    });
+  });
+
+  describe('deriveWorkerSessionKey() — key separation', () => {
+    it('produces a key that never equals JWT_SECRET', () => {
+      expect(deriveWorkerSessionKey(JWT_SECRET)).not.toBe(JWT_SECRET);
+    });
+
+    it('is deterministic for the same JWT_SECRET', () => {
+      expect(deriveWorkerSessionKey(JWT_SECRET)).toBe(deriveWorkerSessionKey(JWT_SECRET));
+    });
+
+    it('mints tokens that do NOT verify against the hub-wide JWT_SECRET', async () => {
+      // This is the actual regression this change prevents: every other
+      // verifier in the hub (admin-api.ts, transport/middleware/auth.ts,
+      // multitenancy/TenantMiddleware.ts) calls
+      // jwt.verify(token, cfg.JWT_SECRET). A genuine worker-session token
+      // minted by this adapter must fail that call outright, rather than
+      // succeeding and depending on each verifier to check `scope` by hand.
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+      });
+      _resetConfig();
+      const adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post.mockResolvedValue({
+        data: {
+          sessionId: 'sess-keysep',
+          workerId: 'worker-keysep',
+          endpoint: 'wss://worker-keysep.example.internal/cdp',
+          expiresAt: new Date(Date.now() + 900_000).toISOString(),
+        },
+      });
+
+      const handle = await adapter.createSession({ capability: 'browser', requestedBy: 'agent-1' });
+
+      expect(() => jwt.verify(handle.token, JWT_SECRET)).toThrow();
+      // But it does verify against the derived key, confirming the token
+      // itself is well-formed and this isn't a false pass.
+      expect(() => jwt.verify(handle.token, deriveWorkerSessionKey(JWT_SECRET))).not.toThrow();
     });
   });
 

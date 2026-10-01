@@ -35,12 +35,14 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
     const cfg = getConfig();
     const decoded = jwt.verify(token, cfg.JWT_SECRET);
 
-    // Every bearer token in this hub is signed with the same JWT_SECRET, so
-    // signature validity alone does not mean "authorized for Admin API" — a
-    // worker-session token (see adapters/upcloud-worker-factory) is equally
-    // well-signed but must never reach capability deletion, approvals, or
-    // audit data. Explicitly reject it here rather than relying on callers
-    // to check `scope` themselves.
+    // Worker-session tokens (see adapters/upcloud-worker-factory/index.ts)
+    // are signed with deriveWorkerSessionKey(JWT_SECRET), not JWT_SECRET
+    // itself, so jwt.verify() above already throws on a genuine
+    // worker-session token before this line is reached. This explicit
+    // scope check is defense-in-depth — it still catches a token that was
+    // (incorrectly) signed with JWT_SECRET directly and carries a
+    // worker-session scope claim, so such a token can never reach
+    // capability deletion, approvals, or audit data here.
     if (typeof decoded === 'object' && decoded !== null && (decoded as Record<string, unknown>)['scope'] === 'worker-session') {
       const sessionId = (decoded as Record<string, unknown>)['sessionId'];
       logger.warn('Admin API: rejected a worker-session-scoped token', {

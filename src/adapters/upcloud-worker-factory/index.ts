@@ -14,12 +14,16 @@
  * they are a contract other in-flight work is building against.
  *
  * Deliberately NOT reinvented from scratch:
- *  - Auth (Gate 1) reuses this hub's existing JWT_SECRET signing key and
- *    Bearer-token convention (see transport/middleware/auth.ts, api/admin-api.ts).
+ *  - Auth (Gate 1) reuses this hub's existing JWT_SECRET and Bearer-token
+ *    convention (see transport/middleware/auth.ts, api/admin-api.ts), but
+ *    worker-session tokens are signed with a key *derived* from JWT_SECRET
+ *    (see deriveWorkerSessionKey() below) rather than JWT_SECRET itself —
+ *    see the security note on mintSessionToken() for why.
  *  - Credential leasing (Gate 3) issues every Vault-leased secret through
  *    this hub's own credential-broker — never a parallel secret store.
  */
 
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import axios, { type AxiosInstance } from 'axios';
 import { z } from 'zod';
@@ -77,6 +81,35 @@ const VaultAppRoleLoginResponseSchema = z.object({
     lease_duration: z.number().int().positive(),
   }),
 });
+
+/**
+ * Derives the signing key for worker-session bearer tokens from this hub's
+ * JWT_SECRET (HMAC-SHA256 over a fixed, versioned context string).
+ *
+ * This is key *separation*, not secrecy from JWT_SECRET — anyone who holds
+ * JWT_SECRET can compute this too. The point is that the result is never
+ * equal to JWT_SECRET itself, so the ordinary `jwt.verify(token,
+ * cfg.JWT_SECRET)` call made by every other verifier in this hub —
+ * api/admin-api.ts, transport/middleware/auth.ts,
+ * multitenancy/TenantMiddleware.ts, and any future one — rejects a
+ * worker-session token on signature mismatch alone, with no per-verifier
+ * opt-in required. Before this, isolation depended entirely on each
+ * verifier remembering to check `scope !== 'worker-session'` by hand;
+ * TenantMiddleware.ts had no such check (worker tokens just happen to
+ * carry no `orgId` claim today, which is not a security boundary). A
+ * worker session is handed to an ephemeral, comparatively less-trusted
+ * remote browser/desktop surface, so its token should not carry the same
+ * blast radius as an admin or runtime token if exfiltrated or replayed.
+ *
+ * Exported so tests can mint/verify worker-session-shaped tokens without
+ * reaching into the adapter's private methods.
+ */
+export function deriveWorkerSessionKey(jwtSecret: string): string {
+  return crypto
+    .createHmac('sha256', jwtSecret)
+    .update('upcloud-worker-factory:worker-session:v1')
+    .digest('hex');
+}
 
 export interface WorkerSessionRequest {
   /** 'browser' for a CDP-driven Chromium session, 'desktop' for a full
@@ -151,10 +184,12 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
   // ─────────────────────────────────────────────────────────────
 
   /**
-   * Mint a worker-session-scoped bearer token. Signed with the same
-   * JWT_SECRET as every other bearer token this hub issues — a worker
-   * session token is distinguished by `scope: 'worker-session'` and a
-   * `sessionId` claim, not by a separate signing key.
+   * Mint a worker-session-scoped bearer token. Signed with
+   * deriveWorkerSessionKey(JWT_SECRET) — a key derived from, but never
+   * equal to, this hub's JWT_SECRET — so a worker-session token fails
+   * signature verification outright against every other verifier in this
+   * hub that checks straight against JWT_SECRET. See the note on
+   * deriveWorkerSessionKey() above for why that matters.
    */
   mintSessionToken(
     sessionId: string,
@@ -165,7 +200,7 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
     const cfg = getConfig();
     return jwt.sign(
       { sub: subject, scope: 'worker-session', sessionId, capabilities },
-      cfg.JWT_SECRET,
+      deriveWorkerSessionKey(cfg.JWT_SECRET),
       { expiresIn: Math.max(1, Math.floor(ttlMs / 1000)) },
     );
   }
@@ -173,7 +208,8 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
   /**
    * Verify a worker-session bearer token and return its claims. Throws if
    * the signature is invalid, the token is expired, or it was not issued
-   * for worker-session scope (e.g. an admin-api token presented here).
+   * for worker-session scope (e.g. a token signed with JWT_SECRET directly
+   * presented here).
    */
   verifySessionToken(token: string): {
     subject: string;
@@ -181,7 +217,7 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
     capabilities: WorkerSessionCapability[];
   } {
     const cfg = getConfig();
-    const decoded = jwt.verify(token, cfg.JWT_SECRET) as Record<string, unknown>;
+    const decoded = jwt.verify(token, deriveWorkerSessionKey(cfg.JWT_SECRET)) as Record<string, unknown>;
     if (decoded['scope'] !== 'worker-session') {
       throw new Error('Token is not scoped for worker-session access');
     }
