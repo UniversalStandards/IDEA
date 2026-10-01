@@ -75,6 +75,18 @@ const VaultLeaseResponseSchema = z.object({
   data: z.record(z.unknown()),
 });
 
+/**
+ * The `capabilities` claim inside a worker-session JWT. A valid signature
+ * only proves the token was minted by this hub's own mintSessionToken() (or
+ * by anyone else who holds deriveWorkerSessionKey(JWT_SECRET)) — it says
+ * nothing about whether the *claims inside* still match this type's
+ * contract. Used by verifySessionToken() to reject a claim that is missing,
+ * not an array, or contains anything other than 'browser'/'desktop', rather
+ * than casting it through unchecked (see the note there for why that
+ * matters even for an otherwise-validly-signed token).
+ */
+const WorkerSessionCapabilitySchema = z.enum(['browser', 'desktop']);
+
 const VaultAppRoleLoginResponseSchema = z.object({
   auth: z.object({
     client_token: z.string().min(1),
@@ -202,13 +214,40 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
   async shutdown(): Promise<void> {
     const ids = Array.from(this.sessions.keys());
     const results = await Promise.allSettled(ids.map((id) => this.endSession(id, 'system')));
-    const failed = results.filter((r) => r.status === 'rejected').length;
-    if (failed > 0) {
-      logger.warn('Some worker sessions failed to end cleanly during shutdown', { failed, total: ids.length });
+
+    // endSession() resolves normally even when the broker-side teardown call
+    // failed — it marks the session teardownPending rather than rejecting
+    // (see endSession() above) — so `rejected` here only catches a genuinely
+    // unexpected throw, never an ordinary broker-unreachable case. Checking
+    // it alone would make shutdown declare every session "ended" even when
+    // some are only teardown-pending; check the real post-settle state too.
+    const threw = results.filter((r) => r.status === 'rejected').length;
+    if (threw > 0) {
+      logger.warn('Some worker sessions threw unexpectedly while ending during shutdown', {
+        threw,
+        total: ids.length,
+      });
     }
+
+    const stillPending = this.listPendingTeardownSessions();
+    if (stillPending.length > 0) {
+      logger.error(
+        'Shutdown is leaving worker sessions behind with failed broker-side teardown — their ' +
+          'remote workers and session tokens may still be live. Leased credentials for these ' +
+          'sessions have already been revoked, but this in-memory teardownPending record does not ' +
+          'survive process exit, so nothing will automatically retry the broker-side DELETE after ' +
+          'this process ends.',
+        { pendingSessionIds: stillPending.map((s) => s.sessionId) },
+      );
+    }
+
     this.client = undefined;
     this.vaultToken = undefined;
-    logger.info('UpCloud worker factory adapter shut down', { sessionsEnded: ids.length - failed });
+    logger.info('UpCloud worker factory adapter shut down', {
+      sessionsFullyEnded: ids.length - stillPending.length - threw,
+      sessionsPendingTeardown: stillPending.length,
+      sessionsThrew: threw,
+    });
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -239,9 +278,21 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
 
   /**
    * Verify a worker-session bearer token and return its claims. Throws if
-   * the signature is invalid, the token is expired, or it was not issued
-   * for worker-session scope (e.g. a token signed with JWT_SECRET directly
-   * presented here).
+   * the signature is invalid, the token is expired, it was not issued for
+   * worker-session scope (e.g. a token signed with JWT_SECRET directly
+   * presented here), or its `capabilities` claim does not hold at least one
+   * valid `'browser'` | `'desktop'` value.
+   *
+   * That last check matters even though the signature has already been
+   * verified: a valid signature only proves the token was minted by
+   * something holding deriveWorkerSessionKey(JWT_SECRET) — it says nothing
+   * about whether the claims *inside* a given token still conform to this
+   * function's declared return type. Previously a non-array capabilities
+   * claim was silently replaced with `[]`, and an array containing anything
+   * other than 'browser'/'desktop' (e.g. `['admin']`) was cast straight
+   * through unchecked, letting a malformed-but-validly-signed token violate
+   * the type downstream callers rely on and potentially slip past a
+   * capability check that isn't doing an exact-match comparison itself.
    */
   verifySessionToken(token: string): {
     subject: string;
@@ -258,12 +309,14 @@ export class UpcloudWorkerFactoryAdapter implements IAdapter {
     if (typeof sessionId !== 'string' || typeof subject !== 'string') {
       throw new Error('Worker-session token is missing required claims');
     }
+    const capabilitiesResult = z.array(WorkerSessionCapabilitySchema).min(1).safeParse(decoded['capabilities']);
+    if (!capabilitiesResult.success) {
+      throw new Error('Worker-session token has a missing or invalid capabilities claim');
+    }
     return {
       subject,
       sessionId,
-      capabilities: Array.isArray(decoded['capabilities'])
-        ? (decoded['capabilities'] as WorkerSessionCapability[])
-        : [],
+      capabilities: capabilitiesResult.data,
     };
   }
 

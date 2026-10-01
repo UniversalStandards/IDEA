@@ -169,11 +169,25 @@ export class RuntimeManager {
         healthy: true,
         detail: `${credentialBroker.listHandles().length} credential handles`,
       },
-      {
-        name: 'upcloud-worker-factory',
-        healthy: true,
-        detail: `${upcloudWorkerFactoryAdapter.listSessions().length} active worker sessions`,
-      },
+      ((): SubsystemHealth => {
+        const pendingTeardowns = upcloudWorkerFactoryAdapter.listPendingTeardownSessions().length;
+        return {
+          name: 'upcloud-worker-factory',
+          // A session whose broker-side teardown failed is an operational
+          // fault, not a healthy idle state — its remote worker and session
+          // token may still be live even though its leased credentials have
+          // already been revoked (see endSession() in
+          // src/adapters/upcloud-worker-factory/index.ts). Surface that here
+          // rather than reporting this subsystem healthy while it silently
+          // accumulates workers nothing is retrying teardown for.
+          healthy: pendingTeardowns === 0,
+          detail:
+            pendingTeardowns > 0
+              ? `${upcloudWorkerFactoryAdapter.listSessions().length} active worker sessions ` +
+                `(${pendingTeardowns} pending broker-side teardown)`
+              : `${upcloudWorkerFactoryAdapter.listSessions().length} active worker sessions`,
+        };
+      })(),
     ];
 
     const healthy = subsystems.every((s) => s.healthy);

@@ -64,13 +64,33 @@ over a fixed, versioned context string; see `src/adapters/upcloud-worker-factory
 > exists to prevent. Corrected in place for the same reason as the first
 > correction above: no UpCloud-side build exists against the old text yet.
 
-Every verifier *inside this hub* already holds `JWT_SECRET` via
-`getConfig()` and computes `deriveWorkerSessionKey(JWT_SECRET)` itself — that
-part is unchanged and is exactly how `verifySessionToken()`,
+> **Updated 2026-10-01 (third correction, same day)** — the paragraph below
+> previously said that `api/admin-api.ts`, `transport/middleware/auth.ts`,
+> and `multitenancy/TenantMiddleware.ts` all "compute
+> `deriveWorkerSessionKey(JWT_SECRET)` itself," same as
+> `verifySessionToken()`. That is backwards and self-contradicting: if those
+> three *did* compute the derived key, they would *accept* a genuine
+> worker-session token (a correct signature check), not reject it. They
+> reject it for the opposite reason — they were never changed, and still
+> verify with `JWT_SECRET` directly. Corrected in place, same rationale as
+> the prior two corrections.
+
+Only `verifySessionToken()` (in
+`src/adapters/upcloud-worker-factory/index.ts`) computes
+`deriveWorkerSessionKey(JWT_SECRET)` — that is the one verifier that needs to
+*accept* a worker-session token. Every other hub-internal verifier —
 `api/admin-api.ts`, `transport/middleware/auth.ts`, and
-`multitenancy/TenantMiddleware.ts` all reject a worker-session token for
-free, with no per-verifier opt-in required (signature mismatch against the
-hub-wide secret).
+`multitenancy/TenantMiddleware.ts` — is unchanged: each still calls
+`jwt.verify(token, cfg.JWT_SECRET)` directly, exactly as it did before this
+gate existed. That is precisely *why* a worker-session token (signed with
+the derived key, not `JWT_SECRET`) fails signature verification at all three
+of them for free, with no per-verifier opt-in required — the rejection comes
+from the key mismatch between what the token was signed with and what each
+of those verifiers checks against, not from any of them recognizing or
+deriving the worker key themselves. Anyone implementing a *new* hub-internal
+verifier that must also reject worker-session tokens needs no special-case
+logic at all: the ordinary `jwt.verify(token, cfg.JWT_SECRET)` every other
+admin/runtime verifier already uses does this automatically.
 
 A verifier *outside* this hub (e.g. a future UpCloud-side component) is a
 different case: it **must never be given `JWT_SECRET`**, under any

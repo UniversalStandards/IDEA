@@ -129,6 +129,54 @@ describe('UpcloudWorkerFactoryAdapter', () => {
       expect(adapter.listSessions()).toHaveLength(0);
       expect(mockBrokerClient.delete).toHaveBeenCalledWith('/sessions/sess-1');
     });
+
+    it('shutdown() does not lose a session whose broker-side DELETE failed, instead of falsely declaring full success', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+      });
+      _resetConfig();
+      const adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      mockBrokerClient.post
+        .mockResolvedValueOnce({
+          data: {
+            sessionId: 'sess-shutdown-ok',
+            workerId: 'worker-shutdown-ok',
+            endpoint: 'wss://worker-shutdown-ok.example.internal/cdp',
+            expiresAt: new Date(Date.now() + 900_000).toISOString(),
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            sessionId: 'sess-shutdown-fails',
+            workerId: 'worker-shutdown-fails',
+            endpoint: 'wss://worker-shutdown-fails.example.internal/cdp',
+            expiresAt: new Date(Date.now() + 900_000).toISOString(),
+          },
+        });
+
+      const okHandle = await adapter.createSession({ capability: 'browser', requestedBy: 'agent-1' });
+      const failHandle = await adapter.createSession({ capability: 'desktop', requestedBy: 'agent-1' });
+
+      mockBrokerClient.delete.mockImplementation((path: string) =>
+        path.includes(failHandle.sessionId)
+          ? Promise.reject(new Error('broker unreachable'))
+          : Promise.resolve({ data: {} }),
+      );
+
+      // endSession() resolves normally even for the session whose broker
+      // DELETE fails (it marks teardownPending rather than rejecting), so
+      // Promise.allSettled() alone can't tell shutdown() anything went
+      // wrong — this is exactly the gap being tested: shutdown() must check
+      // real post-settle state, not just which promises rejected.
+      await expect(adapter.shutdown()).resolves.toBeUndefined();
+
+      expect(adapter.getSession(okHandle.sessionId)).toBeUndefined();
+      const pending = adapter.listPendingTeardownSessions();
+      expect(pending.map((s) => s.sessionId)).toEqual([failHandle.sessionId]);
+    });
   });
 
   describe('createSession()', () => {
@@ -619,6 +667,78 @@ describe('UpcloudWorkerFactoryAdapter', () => {
       );
 
       expect(() => adapter.verifySessionToken(wrongKeyToken)).toThrow();
+    });
+
+    it('rejects an otherwise-validly-signed token whose capabilities claim contains a value outside browser/desktop', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+      });
+      _resetConfig();
+      const adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      // Correctly signed with the derived key — this is specifically about
+      // not trusting the *claims* inside an otherwise-genuine token.
+      const forgedCapabilityToken = jwt.sign(
+        { sub: 'someone', scope: 'worker-session', sessionId: 'sess-x', capabilities: ['admin'] },
+        deriveWorkerSessionKey(JWT_SECRET),
+        { expiresIn: '5m' },
+      );
+
+      expect(() => adapter.verifySessionToken(forgedCapabilityToken)).toThrow(
+        'missing or invalid capabilities claim',
+      );
+    });
+
+    it('rejects a validly-signed token whose capabilities claim is missing or not an array', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+      });
+      _resetConfig();
+      const adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      const missingCapabilitiesToken = jwt.sign(
+        { sub: 'someone', scope: 'worker-session', sessionId: 'sess-x' },
+        deriveWorkerSessionKey(JWT_SECRET),
+        { expiresIn: '5m' },
+      );
+      const nonArrayCapabilitiesToken = jwt.sign(
+        { sub: 'someone', scope: 'worker-session', sessionId: 'sess-x', capabilities: 'browser' },
+        deriveWorkerSessionKey(JWT_SECRET),
+        { expiresIn: '5m' },
+      );
+
+      expect(() => adapter.verifySessionToken(missingCapabilitiesToken)).toThrow(
+        'missing or invalid capabilities claim',
+      );
+      expect(() => adapter.verifySessionToken(nonArrayCapabilitiesToken)).toThrow(
+        'missing or invalid capabilities claim',
+      );
+    });
+
+    it('accepts a validly-signed token with a genuine capabilities claim', async () => {
+      process.env = baseEnv({
+        ENABLE_UPCLOUD_WORKER_FACTORY: 'true',
+        UPCLOUD_BROKER_URL: 'https://broker.example.internal',
+      });
+      _resetConfig();
+      const adapter = new UpcloudWorkerFactoryAdapter();
+      await adapter.initialize();
+
+      const genuineToken = jwt.sign(
+        { sub: 'agent-1', scope: 'worker-session', sessionId: 'sess-good', capabilities: ['desktop'] },
+        deriveWorkerSessionKey(JWT_SECRET),
+        { expiresIn: '5m' },
+      );
+
+      expect(adapter.verifySessionToken(genuineToken)).toEqual({
+        subject: 'agent-1',
+        sessionId: 'sess-good',
+        capabilities: ['desktop'],
+      });
     });
   });
 
