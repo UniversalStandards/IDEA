@@ -34,6 +34,27 @@ function requireAuth(req: Request, res: Response, next: NextFunction): void {
   try {
     const cfg = getConfig();
     const decoded = jwt.verify(token, cfg.JWT_SECRET);
+
+    // Worker-session tokens (see adapters/upcloud-worker-factory/index.ts)
+    // are signed with deriveWorkerSessionKey(JWT_SECRET), not JWT_SECRET
+    // itself, so jwt.verify() above already throws on a genuine
+    // worker-session token before this line is reached. This explicit
+    // scope check is defense-in-depth — it still catches a token that was
+    // (incorrectly) signed with JWT_SECRET directly and carries a
+    // worker-session scope claim, so such a token can never reach
+    // capability deletion, approvals, or audit data here.
+    if (typeof decoded === 'object' && decoded !== null && (decoded as Record<string, unknown>)['scope'] === 'worker-session') {
+      const sessionId = (decoded as Record<string, unknown>)['sessionId'];
+      logger.warn('Admin API: rejected a worker-session-scoped token', {
+        sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+      });
+      auditLog.record('admin_api.auth_rejected', 'unknown', req.path, 'failure', undefined, {
+        reason: 'worker-session token presented to admin API',
+      });
+      res.status(403).json({ error: 'Worker-session tokens are not authorized for Admin API access' });
+      return;
+    }
+
     // Attach decoded payload to request for downstream use
     (req as Request & { jwtPayload: unknown }).jwtPayload = decoded;
     next();
@@ -60,7 +81,7 @@ adminRouter.get('/capabilities', (req: Request, res: Response) => {
   try {
     // runtimeManager.getCapabilities() may not exist in all versions
     const capabilities =
-      typeof (runtimeManager as unknown as Record<string, unknown>).getCapabilities === 'function'
+      typeof (runtimeManager as unknown as Record<string, unknown>)['getCapabilities'] === 'function'
         ? (runtimeManager as unknown as { getCapabilities: () => unknown[] }).getCapabilities()
         : [];
 

@@ -1,4 +1,4 @@
-# Universal MCP Orchestration Hub 🚀
+# Universal Standard MCP Server 🚀
 
 ### Self-Expanding. Multi-Provider. Multi-Client. Enterprise-Ready.
 
@@ -17,7 +17,7 @@ A universal, intelligent, self-provisioning MCP (Model Context Protocol) orchest
 
 ## 1.0 Executive Overview
 
-The **Universal MCP Orchestration Hub** is not just an MCP server. It is a **universal capability plane** for AI systems.
+The **Universal Standard MCP Server** is not just an MCP server. It is a **universal capability plane** for AI systems.
 
 Traditional MCP deployments are static, manual, and fragile. They require teams to separately discover tools, install dependencies, maintain compatibility, wire credentials, update client configurations, and troubleshoot inconsistencies across providers and environments. That model does not scale for modern AI ecosystems, especially when multiple clients, models, clouds, identities, tools, and automation layers need to work together in real time.
 
@@ -37,7 +37,7 @@ The result is a universal runtime layer that allows AI applications to become **
 
 ## 2.0 Core Vision
 
-The Universal MCP Orchestration Hub is designed to act as a **federated interoperability backbone** between:
+The Universal Standard MCP Server is designed to act as a **federated interoperability backbone** between:
 
 - AI assistants
 - MCP servers
@@ -69,7 +69,7 @@ Instead of forcing the world into one provider, one client, one registry, or one
 
 ## 3.0 What Makes This Different
 
-| Capability | Traditional MCP Setup | Universal MCP Orchestration Hub |
+| Capability | Traditional MCP Setup | Universal Standard MCP Server |
 |---|---|---|
 | Tool discovery | Manual | Automatic and multi-source |
 | Installation | Manual | On-demand provisioning |
@@ -119,6 +119,10 @@ Before a tool is activated or executed, the platform enforces allowlists and den
 
 Native support for structured logging, distributed tracing, execution history, capability usage analytics, install events, policy decisions, latency and failure metrics, cost tracking, and provider routing insights.
 
+### 4.9 Ephemeral Browser/Desktop Worker Sessions
+
+For an agent with no local device or browser linked, the UpCloud worker factory adapter provisions a short-lived, session-scoped remote browser (CDP-driven) or desktop surface on demand from a warm worker pool, and tears it down on session end. Session auth reuses the platform's existing JWT bearer-token convention; any Vault-leased credentials a session needs flow through the same scoped, audited credential broker every other adapter uses rather than a separate secret path. Off by default (`ENABLE_UPCLOUD_WORKER_FACTORY=false`) until a broker endpoint is configured — see `docs/gates/upcloud-worker-factory.md` for the full interface contract.
+
 ---
 
 ## 5.0 Reference Architecture
@@ -132,7 +136,7 @@ Native support for structured logging, distributed tracing, execution history, c
                         │ MCP / JSON-RPC / REST / WS / Events
                         ▼
 ┌──────────────────────────────────────────────────────────────┐
-│               Universal MCP Orchestration Hub               │
+│                Universal Standard MCP Server                │
 │                                                              │
 │  ┌────────────────────────────────────────────────────────┐  │
 │  │ Request Normalization and Translation Layer            │  │

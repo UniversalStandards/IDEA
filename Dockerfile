@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # =============================================================
-# Universal MCP Orchestration Hub — Production Dockerfile
+# Universal Standard MCP Server — Production Dockerfile
 # Multi-stage build: builder → runtime (non-root, minimal)
 # =============================================================
 
@@ -29,7 +29,7 @@ RUN npm ci --omit=dev --ignore-scripts
 FROM node:20-slim AS runtime
 
 # OCI standard labels
-LABEL org.opencontainers.image.title="Universal MCP Orchestration Hub"
+LABEL org.opencontainers.image.title="Universal Standard MCP Server"
 LABEL org.opencontainers.image.description="Self-expanding, multi-provider, enterprise-ready MCP orchestration platform"
 LABEL org.opencontainers.image.source="https://github.com/UniversalStandards/IDEA"
 LABEL org.opencontainers.image.licenses="Apache-2.0"

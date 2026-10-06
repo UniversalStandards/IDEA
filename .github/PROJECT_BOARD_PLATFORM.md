@@ -1,5 +1,5 @@
 # 🚀 Project Board 1 — Platform Build
-## Universal MCP Orchestration Hub — Core Infrastructure
+## Universal Standard MCP Server — Core Infrastructure
 
 > **Purpose**: Tracks all technical implementation work to bring the platform from pre-alpha to a stable `0.1.0` release. Every card maps to a GitHub Issue. Priority order follows AGENTS.md Section 9.
 

@@ -1,7 +1,7 @@
 import { ChildProcess, spawn } from 'child_process';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { auditLogger } from '../security/audit';
+import { auditLog } from '../security/audit';
 import { ToolMetadata } from '../discovery/types';
 import { ToolRuntimeConfig } from './config-generator';
 
@@ -12,9 +12,14 @@ export interface RegisteredTool {
   config: ToolRuntimeConfig;
   registeredAt: Date;
   status: 'registered' | 'running' | 'stopped' | 'error';
-  process?: ChildProcess;
-  pid?: number;
-  errorMessage?: string;
+  // These three are cleared back to `undefined` in place (not omitted) as the
+  // tool's process lifecycle transitions, so — unlike a cross-boundary payload
+  // type — they are declared `| undefined` rather than merely optional (`?`):
+  // under exactOptionalPropertyTypes, `?` permits omitting the key, not
+  // assigning `undefined` to it.
+  process: ChildProcess | undefined;
+  pid: number | undefined;
+  errorMessage: string | undefined;
 }
 
 export class RuntimeRegistrar {
@@ -34,17 +39,17 @@ export class RuntimeRegistrar {
       config,
       registeredAt: new Date(),
       status: 'registered',
+      process: undefined,
+      pid: undefined,
+      errorMessage: undefined,
     };
 
     this.registry.set(tool.id, entry);
     metrics.gauge('registered_tools_total', this.registry.size);
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'tool.register',
-      resource: tool.id,
-      outcome: 'success',
-      metadata: { name: tool.name, version: tool.version },
+    auditLog.record('tool.register', 'system', tool.id, 'success', undefined, {
+      name: tool.name,
+      version: tool.version,
     });
 
     logger.info('Tool registered', { toolId: tool.id, name: tool.name });
@@ -65,12 +70,7 @@ export class RuntimeRegistrar {
     this.registry.delete(toolId);
     metrics.gauge('registered_tools_total', this.registry.size);
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'tool.unregister',
-      resource: toolId,
-      outcome: 'success',
-    });
+    auditLog.record('tool.unregister', 'system', toolId, 'success');
 
     logger.info('Tool unregistered', { toolId });
   }
@@ -158,13 +158,7 @@ export class RuntimeRegistrar {
       metrics.increment('tool_process_errors_total', { toolId });
     });
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'tool.start',
-      resource: toolId,
-      outcome: 'success',
-      metadata: { pid: proc.pid },
-    });
+    auditLog.record('tool.start', 'system', toolId, 'success', undefined, { pid: proc.pid });
 
     metrics.increment('tool_process_starts_total', { toolId });
     return proc;
@@ -212,12 +206,7 @@ export class RuntimeRegistrar {
     entry.process = undefined;
     entry.pid = undefined;
 
-    auditLogger.log({
-      actor: 'system',
-      action: 'tool.stop',
-      resource: toolId,
-      outcome: 'success',
-    });
+    auditLog.record('tool.stop', 'system', toolId, 'success');
 
     logger.info('Tool process stopped', { toolId });
   }

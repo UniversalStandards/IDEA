@@ -1,4 +1,4 @@
-# Contributing to Universal MCP Orchestration Hub
+# Contributing to Universal Standard MCP Server
 
 Thank you for your interest in contributing. This guide covers everything you need to get started, submit high-quality contributions, and work within the project's standards.
 

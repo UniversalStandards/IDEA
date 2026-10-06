@@ -52,6 +52,14 @@ function resolveOrgIdFromBearer(req: Request): string | undefined {
   if (!token) return undefined;
 
   try {
+    // A worker-session token (see adapters/upcloud-worker-factory/index.ts)
+    // is signed with deriveWorkerSessionKey(JWT_SECRET), not JWT_SECRET
+    // itself, so jwt.verify() below throws for one before any orgId claim
+    // is even considered. This file previously had no such protection and
+    // relied only on worker tokens happening not to carry an orgId/org_id
+    // claim — not a real security boundary, since nothing stopped that
+    // claim from being added later. Key separation closes this by
+    // construction rather than by remembering not to add that claim.
     const decoded = jwt.verify(token, getConfig().JWT_SECRET) as JwtPayload | string;
     if (typeof decoded === 'string') return undefined;
 

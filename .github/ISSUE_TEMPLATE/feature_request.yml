@@ -1,5 +1,5 @@
 name: Feature Request
-description: Propose a new capability for the Universal MCP Orchestration Hub
+description: Propose a new capability for the Universal Standard MCP Server
 labels: ["enhancement"]
 body:
   - type: input

@@ -1,9 +1,11 @@
 # 🗺️ MASTER BUILD TRACKER
-## Universal MCP Orchestration Hub — `UniversalStandards/IDEA`
+## Universal Standard MCP Server (formerly "Universal MCP Orchestration Hub" / "IDEA") — `UniversalStandards/IDEA`
 
 > **This is the single source of truth for the entire build.**  
 > Updated after every work session. Reflects the exact state of `main` as of the last commit.  
-> Last updated: **2026-09-16** | Last commit: [`6643e8a`](../../commit/6643e8ac95007af1f0d2d979355be6bb6f9b815d)
+> Last updated: **2026-10-01** | Previous commit referenced: [`6643e8a`](../../commit/6643e8ac95007af1f0d2d979355be6bb6f9b815d)
+
+> **Session note (2026-10-01)**: Renamed product branding to Universal Standard MCP Server (repo slug unchanged — see `CHANGELOG.md`). Built the UpCloud worker-factory adapter (`src/adapters/upcloud-worker-factory/`) against a newly-frozen interface contract (`docs/gates/upcloud-worker-factory.md`) covering auth, provider registration, and credential leasing — reuses the existing JWT convention and `credentialBroker`, nothing parallel. **Also found, while verifying the new code compiles against the real tree, that this tracker's "94%, all green" status is not accurate**: `runtime-registrar.ts` had the exact `auditLogger`/`.log()` bug `6643e8a` fixed in `installer.ts`, just never caught here (fixed this session); and at least 8 more files across `adapters/cli`, `discovery/`, `normalization/`, `orchestration/`, `routing/` violate `exactOptionalPropertyTypes` (not fixed this session — out of scope for the worker-factory task, flagged below and in `CHANGELOG.md`). This is almost certainly why a whole-project `tsc --noEmit` reliably OOMs rather than reporting errors — confirmed up to 8GB heap. `tests/registry-manager.test.ts`, marked done below, does not currently run. Every file touched or added this session (worker-factory adapter + its 3 bug fixes) was verified to typecheck and pass tests in isolation; the whole-project check could not be re-run clean because of the pre-existing, unrelated issue above.
 
 ---
 
