@@ -15,14 +15,24 @@ const boolEnv = (defaultVal: boolean): z.ZodEffects<z.ZodOptional<z.ZodString>, 
       return v.toLowerCase() !== 'false' && v !== '0';
     });
 
-const intEnv = (defaultVal: number, min = 0, max = Number.MAX_SAFE_INTEGER) =>
+/** Env-var string schema → number (int), falling back to `defaultVal` when unset/empty. */
+type NumericEnvSchema = z.ZodPipeline<
+  z.ZodEffects<z.ZodOptional<z.ZodString>, number, string | undefined>,
+  z.ZodNumber
+>;
+
+const intEnv = (
+  defaultVal: number,
+  min = 0,
+  max = Number.MAX_SAFE_INTEGER,
+): NumericEnvSchema =>
   z
     .string()
     .optional()
     .transform((v) => (v !== undefined && v !== '' ? parseInt(v, 10) : defaultVal))
     .pipe(z.number().int().min(min).max(max));
 
-const floatEnv = (defaultVal: number, min = 0) =>
+const floatEnv = (defaultVal: number, min = 0): NumericEnvSchema =>
   z
     .string()
     .optional()
@@ -188,15 +198,13 @@ export function validateConfig(): Config {
 }
 
 export function getConfig(): Config {
-  if (!_config) {
-    _config = validateConfig();
-  }
+  _config ??= validateConfig();
   return _config;
 }
 
 /** Lazy proxy — reads from validated config on first access. */
 export const config = new Proxy({} as Config, {
-  get(_target, prop) {
+  get(_target, prop): Config[keyof Config] {
     return getConfig()[prop as keyof Config];
   },
 });

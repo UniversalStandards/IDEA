@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { createLogger } from '../observability/logger';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './types';
 
 const logger = createLogger('local-scanner');
 
@@ -85,17 +85,20 @@ function manifestToToolMetadata(
 
   const dependencies = manifest.dependencies ? Object.keys(manifest.dependencies) : [];
 
+  const entryPoint = resolveEntryPoint(manifest, manifestDir);
+  const author = resolveAuthor(manifest.author);
+
   return {
     id,
     name,
     version: manifest.version ?? '0.0.0',
     description: manifest.description ?? `Local MCP server: ${name}`,
     source: 'local',
-    entryPoint: resolveEntryPoint(manifest, manifestDir),
+    ...(entryPoint !== undefined ? { entryPoint } : {}),
     capabilities,
     tags,
-    author: resolveAuthor(manifest.author),
-    license: manifest.license,
+    ...(author !== undefined ? { author } : {}),
+    ...(manifest.license !== undefined ? { license: manifest.license } : {}),
     verified: false,
     riskLevel: 'low',
     dependencies,
@@ -254,9 +257,10 @@ export class LocalScanner implements Registry {
       );
     });
 
-    if (options.tags && options.tags.length > 0) {
+    const filterTags = options.tags;
+    if (filterTags && filterTags.length > 0) {
       results = results.filter((tool) =>
-        options.tags!.some(
+        filterTags.some(
           (tag) =>
             tool.tags.includes(tag.toLowerCase()) ||
             tool.capabilities.includes(tag.toLowerCase()),

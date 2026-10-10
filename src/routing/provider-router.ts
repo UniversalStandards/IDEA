@@ -16,12 +16,17 @@ export interface AIProvider {
   capabilities: string[];
 }
 
+/** Spread-able `apiKey` property that is omitted (not `undefined`) when the key is unset. */
+function optionalApiKey(apiKey: string | undefined): { apiKey?: string } {
+  return apiKey !== undefined ? { apiKey } : {};
+}
+
 const BUILTIN_PROVIDERS: AIProvider[] = [
   {
     id: 'openai',
     name: 'OpenAI',
     baseUrl: process.env['OPENAI_BASE_URL'] ?? 'https://api.openai.com',
-    apiKey: process.env['OPENAI_API_KEY'],
+    ...optionalApiKey(process.env['OPENAI_API_KEY']),
     models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
     maxTokens: 128000,
     capabilities: ['chat', 'completion', 'embedding', 'vision', 'code', 'function_calling'],
@@ -30,7 +35,7 @@ const BUILTIN_PROVIDERS: AIProvider[] = [
     id: 'anthropic',
     name: 'Anthropic',
     baseUrl: process.env['ANTHROPIC_BASE_URL'] ?? 'https://api.anthropic.com',
-    apiKey: process.env['ANTHROPIC_API_KEY'],
+    ...optionalApiKey(process.env['ANTHROPIC_API_KEY']),
     models: ['claude-3-5-sonnet-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307'],
     maxTokens: 200000,
     capabilities: ['chat', 'completion', 'vision', 'code', 'function_calling'],
@@ -39,7 +44,7 @@ const BUILTIN_PROVIDERS: AIProvider[] = [
     id: 'google',
     name: 'Google Gemini',
     baseUrl: process.env['GOOGLE_BASE_URL'] ?? 'https://generativelanguage.googleapis.com',
-    apiKey: process.env['GOOGLE_API_KEY'],
+    ...optionalApiKey(process.env['GOOGLE_API_KEY']),
     models: ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
     maxTokens: 1000000,
     capabilities: ['chat', 'completion', 'vision', 'code', 'embedding'],
@@ -86,7 +91,7 @@ export class ProviderRouter {
   private readonly latencies = new Map<string, LatencySample[]>();
   private readonly requestCounts = new Map<string, number>();
   private readonly failureCounts = new Map<string, number>();
-  private healthCheckTimer?: NodeJS.Timeout;
+  private healthCheckTimer: NodeJS.Timeout | undefined;
 
   constructor() {
     for (const p of BUILTIN_PROVIDERS) {

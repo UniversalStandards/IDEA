@@ -1,7 +1,7 @@
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { RegisteredTool } from '../provisioning/runtime-registrar';
-import { NormalizedRequest } from '../normalization/request-normalizer';
+import { type RegisteredTool } from '../provisioning/runtime-registrar';
+import { type NormalizedRequest } from '../normalization/request-normalizer';
 
 const logger = createLogger('capability-selector');
 
@@ -44,9 +44,9 @@ export class CapabilitySelector {
       .filter((r): r is SelectionResult => r !== null)
       .sort((a, b) => b.score - a.score);
 
-    if (scored.length === 0) return null;
-
     const best = scored[0];
+    if (best === undefined) return null;
+
     logger.debug('Capability selected', {
       requestId: request.id,
       toolId: best.tool.tool.id,

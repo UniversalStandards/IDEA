@@ -22,8 +22,10 @@ const SENSITIVE_KEYS = new Set([
 
 const REDACTED = '[REDACTED]';
 
-function redactSensitive(obj: unknown, depth = 0): unknown {
+export function redactSensitive(obj: unknown, depth = 0): unknown {
   if (depth > 10 || obj === null || typeof obj !== 'object') return obj;
+  // Errors carry non-enumerable message/stack; rebuilding them would erase both.
+  if (obj instanceof Error) return obj;
   if (Array.isArray(obj)) {
     return obj.map((item) => redactSensitive(item, depth + 1));
   }
@@ -38,8 +40,22 @@ function redactSensitive(obj: unknown, depth = 0): unknown {
   return result;
 }
 
-const redactFormat = format((info) => {
-  return redactSensitive(info) as typeof info;
+/**
+ * Redacts sensitive values IN PLACE on the winston `info` object.
+ *
+ * Winston stores its internals (level, message, splat) under Symbol keys that
+ * downstream formats read (`colorize()` needs the Symbol(level) entry, `json()`
+ * writes Symbol(message)). Rebuilding `info` from `Object.entries()` would drop
+ * every Symbol key and crash the console transport on the first log line, so
+ * only the string-keyed fields are rewritten and the original object is returned.
+ */
+export const redactFormat = format((info) => {
+  for (const key of Object.keys(info)) {
+    info[key] = SENSITIVE_KEYS.has(key.toLowerCase())
+      ? REDACTED
+      : redactSensitive(info[key]);
+  }
+  return info;
 });
 
 // ─────────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@ jest.mock('../src/observability/logger', () => ({
   }),
 }));
 
+import { getConfig } from '../src/config';
 import { CostMonitor } from '../src/observability/cost-monitor';
 
 describe('CostMonitor', () => {
@@ -71,11 +72,22 @@ describe('CostMonitor', () => {
   });
 
   it('returns empty summary when no events fall within window', () => {
-    // Push an event, then query with 0ms window (nothing in range)
-    monitor.record({ provider: 'openai', model: 'gpt-4', inputTokens: 100, outputTokens: 50, costUsd: 0.01, requestId: 'r1' });
-    const summary = monitor.getCostSummary(0);
-    expect(summary.requestCount).toBe(0);
-    expect(summary.totalCostUsd).toBe(0);
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      monitor.record({ provider: 'openai', model: 'gpt-4', inputTokens: 100, outputTokens: 50, costUsd: 0.01, requestId: 'r1' });
+
+      // Move the clock 1s past the event, then ask only for the last 500ms.
+      jest.setSystemTime(new Date('2026-01-01T00:00:01.000Z'));
+      const summary = monitor.getCostSummary(500);
+      expect(summary.requestCount).toBe(0);
+      expect(summary.totalCostUsd).toBe(0);
+
+      // The same event is inside a 5s window.
+      expect(monitor.getCostSummary(5_000).requestCount).toBe(1);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('clears all events on clear()', () => {
@@ -95,8 +107,10 @@ describe('CostMonitor', () => {
   });
 
   it('does not record when COST_TRACKING_ENABLED=false', () => {
-    const { getConfig } = require('../src/config') as { getConfig: jest.Mock };
-    getConfig.mockReturnValueOnce({ COST_TRACKING_ENABLED: false, COST_BUDGET_DAILY_USD: 0 });
+    jest.mocked(getConfig).mockReturnValueOnce({
+      COST_TRACKING_ENABLED: false,
+      COST_BUDGET_DAILY_USD: 0,
+    } as ReturnType<typeof getConfig>);
     monitor.record({ provider: 'openai', model: 'gpt-4', inputTokens: 100, outputTokens: 50, costUsd: 0.01, requestId: 'r1' });
     expect(monitor.getEventCount()).toBe(0);
   });

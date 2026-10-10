@@ -136,8 +136,8 @@ describe('Config', () => {
     });
   });
 
-  it('accepts MCP_TRANSPORT values: http, stdio, sse', () => {
-    for (const transport of ['http', 'stdio', 'sse'] as const) {
+  it('accepts every supported MCP_TRANSPORT value', () => {
+    for (const transport of ['http', 'http2', 'stdio', 'sse', 'websocket', 'grpc'] as const) {
       process.env['MCP_TRANSPORT'] = transport;
       _resetConfig();
       const cfg = validateConfig();
@@ -146,7 +146,7 @@ describe('Config', () => {
   });
 
   it('rejects invalid MCP_TRANSPORT value', () => {
-    process.env['MCP_TRANSPORT'] = 'websocket';
+    process.env['MCP_TRANSPORT'] = 'carrier-pigeon';
     expect(() => validateConfig()).toThrow('Configuration validation failed');
   });
 

@@ -1,4 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { defineTool } from './define-tool';
 import { z } from 'zod';
 import { createLogger } from '../../observability/logger';
 import { metrics } from '../../observability/metrics';
@@ -16,7 +17,7 @@ export class MCPAdapter {
 
   constructor() {
     this.server = new McpServer({
-      name: 'IDEA Hub',
+      name: 'Universal Standard MCP Server',
       version: '1.0.0',
     });
 
@@ -26,7 +27,8 @@ export class MCPAdapter {
 
   private registerTools(): void {
     // 1. discover_capabilities
-    this.server.tool(
+    defineTool(
+      this.server,
       'discover_capabilities',
       'Search registries for tools and capabilities matching a query',
       {
@@ -60,7 +62,8 @@ export class MCPAdapter {
     );
 
     // 2. install_tool
-    this.server.tool(
+    defineTool(
+      this.server,
       'install_tool',
       'Install a tool through the full pipeline (discovery, policy check, install)',
       {
@@ -127,7 +130,8 @@ export class MCPAdapter {
     );
 
     // 3. list_installed_tools
-    this.server.tool(
+    defineTool(
+      this.server,
       'list_installed_tools',
       'List all tools currently registered in the runtime',
       {},
@@ -161,7 +165,8 @@ export class MCPAdapter {
     );
 
     // 4. execute_capability
-    this.server.tool(
+    defineTool(
+      this.server,
       'execute_capability',
       'Execute an action on a registered tool',
       {
@@ -239,7 +244,8 @@ export class MCPAdapter {
     );
 
     // 5. get_hub_status
-    this.server.tool(
+    defineTool(
+      this.server,
       'get_hub_status',
       'Get current hub status including metrics, installed tools, and provider list',
       {},
@@ -278,7 +284,8 @@ export class MCPAdapter {
     );
 
     // 6. manage_policy
-    this.server.tool(
+    defineTool(
+      this.server,
       'manage_policy',
       'Manage hub policies: list, add, or remove policy rules',
       {
@@ -342,7 +349,8 @@ export class MCPAdapter {
     );
 
     // 7. route_to_provider
-    this.server.tool(
+    defineTool(
+      this.server,
       'route_to_provider',
       'Route an AI request to the best available provider',
       {
@@ -354,7 +362,7 @@ export class MCPAdapter {
         try {
           const routed = providerRouter.route({
             capability: args.capability,
-            preferredProvider: args.provider,
+            ...(args.provider !== undefined ? { preferredProvider: args.provider } : {}),
             fallback: true,
           });
 
