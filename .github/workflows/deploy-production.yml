@@ -100,6 +100,8 @@ jobs:
     name: Deploy backend
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
+    outputs:
+      deployed: ${{ steps.backend-config.outputs.enabled }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -180,7 +182,7 @@ jobs:
       # The backend URL is read straight from the secret here: GitHub suppresses
       # job outputs that contain secret values, so it cannot travel via `needs`.
       - name: Verify backend deployment
-        if: ${{ needs.deploy-backend.result == 'success' }}
+        if: ${{ needs.deploy-backend.result == 'success' && needs.deploy-backend.outputs.deployed == 'true' }}
         env:
           PRODUCTION_BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL }}
         run: |

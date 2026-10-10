@@ -21,9 +21,13 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 const REDACTED = '[REDACTED]';
+const TRUNCATED = '[TRUNCATED]';
 
 export function redactSensitive(obj: unknown, depth = 0): unknown {
-  if (depth > 10 || obj === null || typeof obj !== 'object') return obj;
+  if (obj === null || typeof obj !== 'object') return obj;
+  // Past the depth limit the subtree can no longer be inspected for secrets, so
+  // it is dropped rather than emitted unredacted (fail closed).
+  if (depth > 10) return TRUNCATED;
   // Errors keep their non-enumerable name/message/stack/cause (a plain
   // Object.entries() rebuild would erase them) while every enumerable property
   // (e.g. an AxiosError's `config.headers.Authorization`) is still sanitized.

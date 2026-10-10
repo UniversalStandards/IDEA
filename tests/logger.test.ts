@@ -57,7 +57,7 @@ describe('redactSensitive()', () => {
     expect(out.cause).toEqual({ password: '[REDACTED]', detail: 'd' });
   });
 
-  it('stops recursing past the depth limit', () => {
+  it('fails closed past the depth limit: nested secrets never appear', () => {
     const deep: Record<string, unknown> = {};
     let cursor = deep;
     for (let i = 0; i < 15; i++) {
@@ -65,8 +65,12 @@ describe('redactSensitive()', () => {
       cursor['n'] = next;
       cursor = next;
     }
+    cursor['password'] = 'deep-secret-value';
 
-    expect(() => redactSensitive(deep)).not.toThrow();
+    const out = redactSensitive(deep);
+
+    expect(JSON.stringify(out)).not.toContain('deep-secret-value');
+    expect(JSON.stringify(out)).toContain('[TRUNCATED]');
   });
 });
 

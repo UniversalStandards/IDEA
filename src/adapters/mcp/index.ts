@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { defineTool } from './define-tool';
+import { getServiceVersion } from '../../version';
 import { z } from 'zod';
 import { createLogger } from '../../observability/logger';
 import { metrics } from '../../observability/metrics';
@@ -18,7 +19,7 @@ export class MCPAdapter {
   constructor() {
     this.server = new McpServer({
       name: 'Universal Standard MCP Server',
-      version: '1.0.0',
+      version: getServiceVersion(),
     });
 
     this.registerTools();

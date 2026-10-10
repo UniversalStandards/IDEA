@@ -64,6 +64,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { MCPAdapter } from '../src/adapters/mcp/index';
 import { defineTool } from '../src/adapters/mcp/define-tool';
+import { getServiceVersion } from '../src/version';
 import { metrics } from '../src/observability/metrics';
 import { registryManager } from '../src/discovery/registry-manager';
 import { installer } from '../src/provisioning/installer';
@@ -153,8 +154,10 @@ describe('MCPAdapter construction', () => {
     new MCPAdapter();
     expect(mockServerCtor).toHaveBeenCalledWith({
       name: 'Universal Standard MCP Server',
-      version: '1.0.0',
+      version: getServiceVersion(),
     });
+    // Must track package.json rather than a hardcoded literal.
+    expect(getServiceVersion()).toMatch(/^\d+\.\d+\.\d+/);
   });
 
   it('registers exactly the seven hub tools, each with a description', () => {
