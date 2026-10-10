@@ -24,8 +24,23 @@ const REDACTED = '[REDACTED]';
 
 export function redactSensitive(obj: unknown, depth = 0): unknown {
   if (depth > 10 || obj === null || typeof obj !== 'object') return obj;
-  // Errors carry non-enumerable message/stack; rebuilding them would erase both.
-  if (obj instanceof Error) return obj;
+  // Errors keep their non-enumerable name/message/stack/cause (a plain
+  // Object.entries() rebuild would erase them) while every enumerable property
+  // (e.g. an AxiosError's `config.headers.Authorization`) is still sanitized.
+  if (obj instanceof Error) {
+    const sanitized: Record<string, unknown> = {
+      name: obj.name,
+      message: obj.message,
+      ...(obj.stack !== undefined ? { stack: obj.stack } : {}),
+      ...(obj.cause !== undefined ? { cause: redactSensitive(obj.cause, depth + 1) } : {}),
+    };
+    for (const [k, v] of Object.entries(obj)) {
+      sanitized[k] = SENSITIVE_KEYS.has(k.toLowerCase())
+        ? REDACTED
+        : redactSensitive(v, depth + 1);
+    }
+    return sanitized;
+  }
   if (Array.isArray(obj)) {
     return obj.map((item) => redactSensitive(item, depth + 1));
   }

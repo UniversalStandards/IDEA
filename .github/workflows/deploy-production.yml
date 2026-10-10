@@ -100,8 +100,6 @@ jobs:
     name: Deploy backend
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
-    outputs:
-      backend_url: ${{ steps.backend-url.outputs.url }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -167,13 +165,6 @@ jobs:
           RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
         run: railway up --detach
 
-      - name: Set backend URL output
-        id: backend-url
-        env:
-          PRODUCTION_BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL }}
-        run: |
-          echo "url=${PRODUCTION_BACKEND_URL}" >> "$GITHUB_OUTPUT"
-
   smoke-test:
     name: Production smoke tests
     runs-on: ubuntu-latest
@@ -182,8 +173,19 @@ jobs:
     steps:
       - name: Verify frontend deployment
         if: ${{ needs.deploy-frontend.result == 'success' && needs.deploy-frontend.outputs.frontend_url != '' }}
-        run: curl -fsS "${{ needs.deploy-frontend.outputs.frontend_url }}"
+        env:
+          FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
+        run: curl -fsS "$FRONTEND_URL"
 
+      # The backend URL is read straight from the secret here: GitHub suppresses
+      # job outputs that contain secret values, so it cannot travel via `needs`.
       - name: Verify backend deployment
-        if: ${{ needs.deploy-backend.result == 'success' && needs.deploy-backend.outputs.backend_url != '' }}
-        run: curl -fsS "${{ needs.deploy-backend.outputs.backend_url }}/health"
+        if: ${{ needs.deploy-backend.result == 'success' }}
+        env:
+          PRODUCTION_BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL }}
+        run: |
+          if [ -z "$PRODUCTION_BACKEND_URL" ]; then
+            echo "PRODUCTION_BACKEND_URL is not configured; skipping backend smoke test."
+            exit 0
+          fi
+          curl -fsS "${PRODUCTION_BACKEND_URL%/}/health"

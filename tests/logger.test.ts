@@ -33,10 +33,28 @@ describe('redactSensitive()', () => {
     expect(redactSensitive(5)).toBe(5);
   });
 
-  it('keeps Error instances intact so message and stack survive', () => {
-    const err = new Error('boom');
+  it('preserves Error name/message/stack while redacting enumerable secrets', () => {
+    const err = Object.assign(new Error('request failed'), {
+      token: 'abc',
+      config: { headers: { Authorization: 'Bearer ghp_secret' }, url: '/x' },
+    });
 
-    expect(redactSensitive(err)).toBe(err);
+    const out = redactSensitive(err) as Record<string, unknown>;
+
+    expect(out['name']).toBe('Error');
+    expect(out['message']).toBe('request failed');
+    expect(typeof out['stack']).toBe('string');
+    expect(out['token']).toBe('[REDACTED]');
+    expect(JSON.stringify(out)).not.toContain('ghp_secret');
+    expect((out['config'] as { url: string }).url).toBe('/x');
+  });
+
+  it('redacts secrets inside an Error cause', () => {
+    const err = new Error('outer', { cause: { password: 'p', detail: 'd' } });
+
+    const out = redactSensitive(err) as { cause: Record<string, unknown> };
+
+    expect(out.cause).toEqual({ password: '[REDACTED]', detail: 'd' });
   });
 
   it('stops recursing past the depth limit', () => {
@@ -82,13 +100,13 @@ describe('redactFormat()', () => {
     expect(out['level']).toContain('warn');
   });
 
-  it('leaves Error metadata readable after redaction', () => {
-    const err = new Error('kaput');
+  it('keeps Error message readable and redacts its secrets after the format runs', () => {
+    const err = Object.assign(new Error('kaput'), { apiKey: 'k' });
     const info = { level: 'error', message: 'failed', err, [LEVEL]: 'error' };
 
-    const result = redactFormat().transform(info) as typeof info;
+    const result = redactFormat().transform(info) as unknown as { err: Record<string, unknown> };
 
-    expect(result.err).toBe(err);
-    expect(result.err.message).toBe('kaput');
+    expect(result.err['message']).toBe('kaput');
+    expect(result.err['apiKey']).toBe('[REDACTED]');
   });
 });
