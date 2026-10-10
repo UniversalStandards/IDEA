@@ -25,15 +25,15 @@ describe('SchemaReconciler', () => {
   it('coerces string to number', () => {
     const schema = { properties: { count: { type: 'number' } } };
     const result = reconciler.reconcile({ count: '42' }, schema);
-    expect((result.coerced as Record<string, unknown>).count).toEqual(42);
+    expect((result.coerced as Record<string, unknown>)['count']).toEqual(42);
   });
 
   it('coerces string "true"/"false" to boolean', () => {
     const schema = { properties: { flag: { type: 'boolean' } } };
     const trueResult = reconciler.reconcile({ flag: 'true' }, schema);
     const falseResult = reconciler.reconcile({ flag: 'false' }, schema);
-    expect((trueResult.coerced as Record<string, unknown>).flag).toBe(true);
-    expect((falseResult.coerced as Record<string, unknown>).flag).toBe(false);
+    expect((trueResult.coerced as Record<string, unknown>)['flag']).toBe(true);
+    expect((falseResult.coerced as Record<string, unknown>)['flag']).toBe(false);
   });
 
   it('fills in default values for missing fields', () => {
@@ -43,7 +43,7 @@ describe('SchemaReconciler', () => {
       },
     };
     const result = reconciler.reconcile({}, schema);
-    expect((result.coerced as Record<string, unknown>).limit).toEqual(10);
+    expect((result.coerced as Record<string, unknown>)['limit']).toEqual(10);
   });
 
   it('reports an issue for enum violation', () => {

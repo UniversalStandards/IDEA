@@ -21,9 +21,30 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 const REDACTED = '[REDACTED]';
+const TRUNCATED = '[TRUNCATED]';
 
-function redactSensitive(obj: unknown, depth = 0): unknown {
-  if (depth > 10 || obj === null || typeof obj !== 'object') return obj;
+export function redactSensitive(obj: unknown, depth = 0): unknown {
+  if (obj === null || typeof obj !== 'object') return obj;
+  // Past the depth limit the subtree can no longer be inspected for secrets, so
+  // it is dropped rather than emitted unredacted (fail closed).
+  if (depth > 10) return TRUNCATED;
+  // Errors keep their non-enumerable name/message/stack/cause (a plain
+  // Object.entries() rebuild would erase them) while every enumerable property
+  // (e.g. an AxiosError's `config.headers.Authorization`) is still sanitized.
+  if (obj instanceof Error) {
+    const sanitized: Record<string, unknown> = {
+      name: obj.name,
+      message: obj.message,
+      ...(obj.stack !== undefined ? { stack: obj.stack } : {}),
+      ...(obj.cause !== undefined ? { cause: redactSensitive(obj.cause, depth + 1) } : {}),
+    };
+    for (const [k, v] of Object.entries(obj)) {
+      sanitized[k] = SENSITIVE_KEYS.has(k.toLowerCase())
+        ? REDACTED
+        : redactSensitive(v, depth + 1);
+    }
+    return sanitized;
+  }
   if (Array.isArray(obj)) {
     return obj.map((item) => redactSensitive(item, depth + 1));
   }
@@ -38,8 +59,22 @@ function redactSensitive(obj: unknown, depth = 0): unknown {
   return result;
 }
 
-const redactFormat = format((info) => {
-  return redactSensitive(info) as typeof info;
+/**
+ * Redacts sensitive values IN PLACE on the winston `info` object.
+ *
+ * Winston stores its internals (level, message, splat) under Symbol keys that
+ * downstream formats read (`colorize()` needs the Symbol(level) entry, `json()`
+ * writes Symbol(message)). Rebuilding `info` from `Object.entries()` would drop
+ * every Symbol key and crash the console transport on the first log line, so
+ * only the string-keyed fields are rewritten and the original object is returned.
+ */
+export const redactFormat = format((info) => {
+  for (const key of Object.keys(info)) {
+    info[key] = SENSITIVE_KEYS.has(key.toLowerCase())
+      ? REDACTED
+      : redactSensitive(info[key]);
+  }
+  return info;
 });
 
 // ─────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction, Application } from 'express';
+import { Router, type Request, type Response, type NextFunction, type Application } from 'express';
 import { createLogger } from '../../observability/logger';
 import { metrics } from '../../observability/metrics';
 import { registryManager } from '../../discovery/registry-manager';
@@ -8,18 +8,18 @@ import { policyEngine } from '../../policy/policy-engine';
 import { providerRouter } from '../../routing/provider-router';
 import { workflowEngine } from '../../orchestration/workflow-engine';
 import { config } from '../../config';
-import { timingSafeEqual } from '../../security/crypto';
+import { constantTimeEqual } from '../../security/crypto';
 
 const logger = createLogger('rest-adapter');
 
 function authMiddleware(req: Request, res: Response, next: NextFunction): void {
   const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Unauthorized: missing Bearer token' });
     return;
   }
   const token = authHeader.slice(7);
-  if (!timingSafeEqual(token, config.JWT_SECRET)) {
+  if (!constantTimeEqual(token, config.JWT_SECRET)) {
     res.status(401).json({ error: 'Unauthorized: invalid token' });
     return;
   }
@@ -68,7 +68,11 @@ export function createRestAdapter(app: Application): void {
         res.status(400).json({ error: 'query is required' });
         return;
       }
-      const results = await registryManager.search({ query, tags, limit });
+      const results = await registryManager.search({
+        query,
+        ...(tags !== undefined ? { tags } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      });
       metrics.increment('rest_requests_total', { endpoint: 'POST /tools/search' });
       res.json({ tools: results, count: results.length });
     } catch (err) {
@@ -199,7 +203,11 @@ export function createRestAdapter(app: Application): void {
         return;
       }
 
-      const provider = providerRouter.route({ capability, preferredProvider, fallback });
+      const provider = providerRouter.route({
+        capability,
+        ...(preferredProvider !== undefined ? { preferredProvider } : {}),
+        ...(fallback !== undefined ? { fallback } : {}),
+      });
       if (!provider) {
         res.status(404).json({ error: `No provider available for capability: ${capability}` });
         return;

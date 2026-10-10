@@ -1,7 +1,7 @@
 /**
  * Tests for the request normalizer.
  */
-import { RequestNormalizer, NormalizedRequest } from '../src/normalization/request-normalizer';
+import { RequestNormalizer } from '../src/normalization/request-normalizer';
 
 describe('RequestNormalizer', () => {
   let normalizer: RequestNormalizer;

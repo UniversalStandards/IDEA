@@ -44,6 +44,15 @@ export class ExecutionPlanner {
     const planId = randomUUID();
     const steps: ExecutionStep[] = [];
 
+    /** Id of the most recently added step, which the next step depends on. */
+    const previousStepId = (): string => {
+      const previous = steps[steps.length - 1];
+      if (previous === undefined) {
+        throw new Error('Execution plan invariant violated: no preceding step to depend on');
+      }
+      return previous.id;
+    };
+
     const toolId = context['toolId'] as string | undefined;
     const action = context['action'] as string | undefined;
     const params = context['params'] as Record<string, unknown> | undefined;
@@ -61,12 +70,13 @@ export class ExecutionPlanner {
     }
 
     // Step 2: Validate policy
+    const previousStep = steps[steps.length - 1];
     const validateStep: ExecutionStep = {
       id: `${planId}-validate`,
       type: 'validate',
-      toolId,
+      ...(toolId !== undefined ? { toolId } : {}),
       params: { goal, action, actor: context['actor'] ?? 'system' },
-      dependsOn: steps.length > 0 ? [steps[steps.length - 1]!.id] : undefined,
+      ...(previousStep !== undefined ? { dependsOn: [previousStep.id] } : {}),
     };
     steps.push(validateStep);
 
@@ -75,7 +85,7 @@ export class ExecutionPlanner {
       const approveStep: ExecutionStep = {
         id: `${planId}-approve`,
         type: 'approve',
-        toolId,
+        ...(toolId !== undefined ? { toolId } : {}),
         params: { reason: `Approval required for: ${goal}` },
         dependsOn: [validateStep.id],
       };
@@ -91,7 +101,7 @@ export class ExecutionPlanner {
           type: 'install',
           toolId,
           params: {},
-          dependsOn: [steps[steps.length - 1]!.id],
+          dependsOn: [previousStepId()],
         };
         steps.push(installStep);
       }
@@ -104,7 +114,7 @@ export class ExecutionPlanner {
         type: 'execute',
         toolId,
         params: { action, ...(params ?? {}) },
-        dependsOn: [steps[steps.length - 1]!.id],
+        dependsOn: [previousStepId()],
       };
       steps.push(executeStep);
     }
@@ -115,7 +125,7 @@ export class ExecutionPlanner {
         id: `${planId}-notify`,
         type: 'notify',
         params: { goal, success: true },
-        dependsOn: [steps[steps.length - 1]!.id],
+        dependsOn: [previousStepId()],
       };
       steps.push(notifyStep);
     }
@@ -194,8 +204,9 @@ export class ExecutionPlanner {
       );
 
       for (let i = 0; i < ready.length; i++) {
-        const step = ready[i]!;
-        const result = results[i]!;
+        const step = ready[i];
+        const result = results[i];
+        if (step === undefined || result === undefined) continue;
 
         remaining.splice(remaining.indexOf(step), 1);
         completed.add(step.id);

@@ -3,7 +3,7 @@ import NodeCache from 'node-cache';
 import { config } from '../config';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './types';
 
 const logger = createLogger('official-registry');
 
@@ -215,7 +215,7 @@ function smitheryToToolMetadata(server: SmitheryServer): ToolMetadata {
     verified: server.isDeployed === true,
     riskLevel: 'low',
     downloadCount: server.useCount ?? 0,
-    lastUpdated: server.createdAt ? new Date(server.createdAt) : undefined,
+    ...(server.createdAt ? { lastUpdated: new Date(server.createdAt) } : {}),
   };
 }
 
@@ -225,7 +225,7 @@ export class OfficialRegistry implements Registry {
   private readonly cache: NodeCache;
 
   constructor() {
-    const ttl = (() => {
+    const ttl = ((): number => {
       try {
         return config.CACHE_TTL;
       } catch {
@@ -252,9 +252,10 @@ export class OfficialRegistry implements Registry {
       );
     });
 
-    if (options.tags && options.tags.length > 0) {
+    const filterTags = options.tags;
+    if (filterTags && filterTags.length > 0) {
       results = results.filter((tool) =>
-        options.tags!.some(
+        filterTags.some(
           (tag) =>
             tool.tags.includes(tag.toLowerCase()) ||
             tool.capabilities.includes(tag.toLowerCase()),

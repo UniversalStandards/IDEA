@@ -14,6 +14,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  detect-frontend:
+    name: Detect frontend
+    runs-on: ubuntu-latest
+    outputs:
+      has_web: ${{ steps.detect.outputs.has_web }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for web/package.json
+        id: detect
+        run: |
+          if [ -f web/package.json ]; then
+            echo "has_web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_web=false" >> "$GITHUB_OUTPUT"
+            echo "No web/package.json found; frontend jobs will be skipped."
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -83,7 +100,8 @@ jobs:
   frontend-typecheck:
     name: Frontend Type Check
     runs-on: ubuntu-latest
-    if: hashFiles('web/package.json') != ''
+    needs: detect-frontend
+    if: needs.detect-frontend.outputs.has_web == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -101,7 +119,8 @@ jobs:
   frontend-lint:
     name: Frontend Lint
     runs-on: ubuntu-latest
-    if: hashFiles('web/package.json') != ''
+    needs: detect-frontend
+    if: needs.detect-frontend.outputs.has_web == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -119,7 +138,8 @@ jobs:
   frontend-test:
     name: Frontend Test
     runs-on: ubuntu-latest
-    if: hashFiles('web/package.json') != ''
+    needs: detect-frontend
+    if: needs.detect-frontend.outputs.has_web == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -137,7 +157,8 @@ jobs:
   frontend-build:
     name: Frontend Build
     runs-on: ubuntu-latest
-    if: hashFiles('web/package.json') != ''
+    needs: detect-frontend
+    if: needs.detect-frontend.outputs.has_web == 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -161,8 +182,8 @@ jobs:
   frontend-e2e:
     name: Frontend E2E
     runs-on: ubuntu-latest
-    needs: [frontend-build, build]
-    if: github.event_name == 'pull_request' && github.base_ref == 'main' && hashFiles('web/package.json') != ''
+    needs: [detect-frontend, frontend-build, build]
+    if: github.event_name == 'pull_request' && github.base_ref == 'main' && needs.detect-frontend.outputs.has_web == 'true'
     env:
       FRONTEND_PORT: '3000'
       BACKEND_PORT: '8080'

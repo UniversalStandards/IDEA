@@ -21,10 +21,10 @@ function toToolMetadata(tool: DiscoveredTool): ToolMetadata {
     version: tool.version,
     description: tool.description,
     source: 'enterprise',
-    repository: tool.repositoryUrl,
+    ...(tool.repositoryUrl !== undefined ? { repository: tool.repositoryUrl } : {}),
     capabilities: [],
     tags: tool.tags,
-    verified: tool.trustScore !== undefined ? tool.trustScore >= 0.7 : undefined,
+    ...(tool.trustScore !== undefined ? { verified: tool.trustScore >= 0.7 } : {}),
     metadata: tool.metadata,
   };
 }

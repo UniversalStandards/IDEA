@@ -16,6 +16,9 @@ jest.mock('../src/security/audit', () => ({
   auditLog: { record: jest.fn() },
 }));
 
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { z } from 'zod';
 import { CliAdapter } from '../src/adapters/cli/index';
 
@@ -37,6 +40,15 @@ const TEMPLATE_TOOL = {
 
 describe('CliAdapter', () => {
   let adapter: CliAdapter;
+  let scriptDir: string;
+
+  beforeAll(() => {
+    scriptDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cli-adapter-test-'));
+  });
+
+  afterAll(() => {
+    fs.rmSync(scriptDir, { recursive: true, force: true });
+  });
 
   beforeEach(() => {
     adapter = new CliAdapter();
@@ -111,10 +123,14 @@ describe('CliAdapter', () => {
   });
 
   it('captures stderr separately from stdout', async () => {
+    // Use a script file (not `sh -c '... >&2'`): the adapter rejects any argument
+    // containing shell metacharacters, so a shell one-liner can never be a valid arg.
+    const scriptPath = path.join(scriptDir, 'write-stderr.js');
+    fs.writeFileSync(scriptPath, "process.stderr.write('error\\n');\n");
     adapter.register({
       id: 'stderr-tool',
-      command: 'sh',
-      args: ['-c', 'echo error >&2'],
+      command: process.execPath,
+      args: [scriptPath],
       description: 'Writes to stderr',
       inputSchema: z.object({}),
     });

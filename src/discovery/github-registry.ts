@@ -1,9 +1,9 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import NodeCache from 'node-cache';
 import { config } from '../config';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './types';
 
 const logger = createLogger('github-registry');
 
@@ -68,12 +68,10 @@ function repoToToolMetadata(repo: GithubRepo): ToolMetadata {
     source: 'github',
     registryUrl: repo.html_url,
     repository: repo.clone_url,
-    installCommand: undefined,
-    entryPoint: undefined,
     capabilities,
     tags,
     author: owner,
-    license: repo.license?.spdx_id,
+    ...(repo.license?.spdx_id !== undefined ? { license: repo.license.spdx_id } : {}),
     downloadCount: repo.stargazers_count,
     lastUpdated: new Date(repo.updated_at),
     verified: false,
@@ -94,7 +92,7 @@ export class GithubRegistry implements Registry {
   private readonly http: AxiosInstance;
 
   constructor() {
-    const ttl = (() => {
+    const ttl = ((): number => {
       try {
         return config.CACHE_TTL;
       } catch {
@@ -104,7 +102,7 @@ export class GithubRegistry implements Registry {
 
     this.cache = new NodeCache({ stdTTL: ttl, checkperiod: Math.ceil(ttl / 2) });
 
-    const token = (() => {
+    const token = ((): string | undefined => {
       try {
         return config.GITHUB_TOKEN;
       } catch {

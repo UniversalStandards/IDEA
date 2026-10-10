@@ -8,7 +8,15 @@
  * - crypto.timingSafeEqual for constant-time comparison
  */
 
-import { createCipheriv, createDecipheriv, randomBytes, timingSafeEqual, scrypt as scryptCb } from 'crypto';
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+  scrypt as scryptCb,
+} from 'crypto';
 import { promisify } from 'util';
 
 const scryptAsync = promisify(scryptCb);
@@ -101,7 +109,6 @@ export function decrypt(ciphertext: string, keyHex: string): string {
  * Returns the hex-encoded digest.
  */
 export function hmac(payload: string, secret: string): string {
-  const { createHmac } = require('crypto') as typeof import('crypto');
   return createHmac('sha256', secret).update(payload).digest('hex');
 }
 
@@ -116,6 +123,5 @@ export function verifyHmac(payload: string, secret: string, expectedHmac: string
 // ─────────────────────────────────────────────────────────────────
 function padKey(key: string): string {
   // Convert a non-hex key string to a 32-byte hex key by hashing
-  const { createHash } = require('crypto') as typeof import('crypto');
   return createHash('sha256').update(key).digest('hex');
 }

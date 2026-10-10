@@ -118,7 +118,7 @@ export class WorkflowEngine extends EventEmitter {
       startedAt,
       success: false,
       stepResults: {},
-      input,
+      ...(input !== undefined ? { input } : {}),
     };
 
     this.activeRuns.set(runId, run);
@@ -182,7 +182,7 @@ export class WorkflowEngine extends EventEmitter {
     logger.info('Workflow cancellation requested', { runId, workflowId: run.workflowId });
   }
 
-  emit(event: string, data?: unknown): boolean {
+  override emit(event: string, data?: unknown): boolean {
     logger.debug('Workflow engine event', { event });
     return super.emit(event, data);
   }
@@ -209,10 +209,13 @@ export class WorkflowEngine extends EventEmitter {
       const filePath = path.join(WORKFLOWS_STATE_DIR, `${runId}.json`);
       const raw = await readFile(filePath, 'utf8');
       const parsed = JSON.parse(raw) as WorkflowRunResult;
+      // JSON round-trips Dates as ISO strings: drop the raw value and re-hydrate
+      // it only when present (exactOptionalPropertyTypes forbids `undefined`).
+      const { completedAt, ...rest } = parsed;
       return {
-        ...parsed,
+        ...rest,
         startedAt: new Date(parsed.startedAt),
-        completedAt: parsed.completedAt ? new Date(parsed.completedAt) : undefined,
+        ...(completedAt ? { completedAt: new Date(completedAt) } : {}),
       };
     } catch {
       return null;

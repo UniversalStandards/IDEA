@@ -59,7 +59,7 @@ export class MetricsRegistry {
   increment(name: string, labels: LabelMap = {}, amount = 1): void {
     const key = serializeKey(name, labels);
     const existing = this.metrics.get(key);
-    if (existing && existing.type === 'counter') {
+    if (existing?.type === 'counter') {
       existing.value += amount;
     } else {
       this.metrics.set(key, { type: 'counter', name, labels, value: amount });
@@ -74,7 +74,7 @@ export class MetricsRegistry {
   histogram(name: string, value: number, labels: LabelMap = {}): void {
     const key = serializeKey(name, labels);
     const existing = this.metrics.get(key);
-    if (existing && existing.type === 'histogram') {
+    if (existing?.type === 'histogram') {
       existing.count += 1;
       existing.sum += value;
       if (value < existing.min) existing.min = value;

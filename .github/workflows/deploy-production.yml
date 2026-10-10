@@ -13,11 +13,36 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+# SECURITY: this workflow_run job runs with repository secrets. The `branches`
+# filter above matches the triggering run's head branch name, so a fork PR from
+# a branch called `main` would also match. Every job is therefore additionally
+# gated on the triggering event being a push from THIS repository's main.
 jobs:
+  detect-frontend:
+    name: Detect frontend
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'
+    outputs:
+      has_web: ${{ steps.detect.outputs.has_web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Check for web/package.json
+        id: detect
+        run: |
+          if [ -f web/package.json ]; then
+            echo "has_web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_web=false" >> "$GITHUB_OUTPUT"
+            echo "No web/package.json found; frontend jobs will be skipped."
+          fi
+
   deploy-frontend:
     name: Deploy frontend to Vercel
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' && hashFiles('web/package.json') != ''
+    needs: detect-frontend
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main' && needs.detect-frontend.outputs.has_web == 'true'
     outputs:
       frontend_url: ${{ steps.deploy.outputs.url }}
     steps:
@@ -79,9 +104,9 @@ jobs:
   deploy-backend:
     name: Deploy backend
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'
     outputs:
-      backend_url: ${{ steps.backend-url.outputs.url }}
+      deployed: ${{ steps.backend-config.outputs.enabled }}
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
@@ -147,25 +172,27 @@ jobs:
           RAILWAY_ENVIRONMENT: ${{ secrets.RAILWAY_ENVIRONMENT }}
         run: railway up --detach
 
-      - name: Set backend URL output
-        id: backend-url
-        run: |
-          if [ -n "${{ secrets.PRODUCTION_BACKEND_URL }}" ]; then
-            echo "url=${{ secrets.PRODUCTION_BACKEND_URL }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "url=" >> "$GITHUB_OUTPUT"
-          fi
-
   smoke-test:
     name: Production smoke tests
     runs-on: ubuntu-latest
     needs: [deploy-frontend, deploy-backend]
-    if: always()
+    if: always() && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.head_branch == 'main'
     steps:
       - name: Verify frontend deployment
         if: ${{ needs.deploy-frontend.result == 'success' && needs.deploy-frontend.outputs.frontend_url != '' }}
-        run: curl -fsS "${{ needs.deploy-frontend.outputs.frontend_url }}"
+        env:
+          FRONTEND_URL: ${{ needs.deploy-frontend.outputs.frontend_url }}
+        run: curl -fsS "$FRONTEND_URL"
 
+      # The backend URL is read straight from the secret here: GitHub suppresses
+      # job outputs that contain secret values, so it cannot travel via `needs`.
       - name: Verify backend deployment
-        if: ${{ needs.deploy-backend.result == 'success' && needs.deploy-backend.outputs.backend_url != '' }}
-        run: curl -fsS "${{ needs.deploy-backend.outputs.backend_url }}/health"
+        if: ${{ needs.deploy-backend.result == 'success' && needs.deploy-backend.outputs.deployed == 'true' }}
+        env:
+          PRODUCTION_BACKEND_URL: ${{ secrets.PRODUCTION_BACKEND_URL }}
+        run: |
+          if [ -z "$PRODUCTION_BACKEND_URL" ]; then
+            echo "PRODUCTION_BACKEND_URL is not configured; skipping backend smoke test."
+            exit 0
+          fi
+          curl -fsS "${PRODUCTION_BACKEND_URL%/}/health"

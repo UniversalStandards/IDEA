@@ -6,7 +6,7 @@ import { GithubRegistry } from './github-registry';
 import { OfficialRegistry } from './official-registry';
 import { LocalScanner } from './local-scanner';
 import { EnterpriseRegistryAdapter } from './enterprise-catalog-adapter';
-import { Registry, RegistrySearchOptions, ToolMetadata } from './types';
+import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './types';
 
 const logger = createLogger('registry-manager');
 
@@ -53,7 +53,7 @@ function sortByTrustAndRelevance(tools: ToolMetadata[], query?: string): ToolMet
     if (bTrust !== aTrust) return bTrust - aTrust;
 
     // Third: query relevance (name exact match > name includes > description)
-    if (query && query.trim()) {
+    if (query?.trim()) {
       const q = query.toLowerCase();
       const aScore =
         a.name.toLowerCase() === q ? 3 : a.name.toLowerCase().includes(q) ? 2 : 1;
@@ -115,8 +115,9 @@ export class RegistryManager extends EventEmitter {
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < resultsArrays.length; i++) {
-      const result = resultsArrays[i]!;
-      const registry = available[i]!;
+      const result = resultsArrays[i];
+      const registry = available[i];
+      if (result === undefined || registry === undefined) continue;
       if (result.status === 'fulfilled') {
         all.push(...result.value);
         metrics.increment('registry_search_results_total', {
@@ -182,8 +183,9 @@ export class RegistryManager extends EventEmitter {
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < results.length; i++) {
-      const result = results[i]!;
-      const registry = available[i]!;
+      const result = results[i];
+      const registry = available[i];
+      if (result === undefined || registry === undefined) continue;
       if (result.status === 'fulfilled') {
         all.push(...result.value);
       } else {
@@ -260,8 +262,9 @@ export class RegistryManager extends EventEmitter {
 
     const available: Registry[] = [];
     for (let i = 0; i < checks.length; i++) {
-      const check = checks[i]!;
-      const registry = candidates[i]!;
+      const check = checks[i];
+      const registry = candidates[i];
+      if (check === undefined || registry === undefined) continue;
       if (check.status === 'fulfilled' && check.value) {
         available.push(registry);
       } else {

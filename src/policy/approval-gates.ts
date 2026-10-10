@@ -63,7 +63,7 @@ export class ApprovalGateManager {
       action,
       requestedBy,
       reason,
-      metadata,
+      ...(metadata !== undefined ? { metadata } : {}),
       status: ApprovalStatus.PENDING,
       createdAt: new Date(),
     };
@@ -94,7 +94,7 @@ export class ApprovalGateManager {
     return new Promise<ApprovalRequestRecord>((resolve) => {
       const timer = setTimeout(() => {
         const current = this.requests.get(id);
-        if (current && current.status === ApprovalStatus.PENDING) {
+        if (current?.status === ApprovalStatus.PENDING) {
           current.status = ApprovalStatus.TIMED_OUT;
           current.decidedAt = new Date();
           auditLog.record('approval.timed_out', 'system', `${current.toolId}:${current.action}`, 'failure', id);
@@ -148,7 +148,7 @@ export class ApprovalGateManager {
     req.status = approved ? ApprovalStatus.APPROVED : ApprovalStatus.REJECTED;
     req.decidedAt = new Date();
     req.decidedBy = decidedBy;
-    req.decisionNote = note;
+    if (note !== undefined) req.decisionNote = note;
 
     auditLog.record(
       approved ? 'approval.approved' : 'approval.rejected',

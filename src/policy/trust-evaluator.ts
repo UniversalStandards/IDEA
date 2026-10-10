@@ -28,12 +28,13 @@ export interface TrustScore {
   factors: TrustFactor[];
 }
 
-type FactorEvaluator = (tool: ToolMetadata) => Omit<TrustFactor, 'name'>;
+type FactorResult = Omit<TrustFactor, 'name'>;
+type FactorEvaluator = (tool: ToolMetadata) => FactorResult;
 
 const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   {
     name: 'source',
-    evaluator: (tool) => {
+    evaluator: (tool): FactorResult => {
       const scoreMap: Record<ToolMetadata['source'], number> = {
         official_registry: 100,
         enterprise: 85,
@@ -51,7 +52,7 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'signature',
-    evaluator: (tool) => {
+    evaluator: (tool): FactorResult => {
       if (tool.signatureValid === true) {
         return { weight: 0.25, score: 100, reason: 'Package signature is valid' };
       }
@@ -63,14 +64,14 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'version_stability',
-    evaluator: (tool) => {
+    evaluator: (tool): FactorResult => {
       const semverRegex = /^(\d+)\.(\d+)\.(\d+)/;
       const match = semverRegex.exec(tool.version);
       if (!match) return { weight: 0.15, score: 10, reason: 'Non-semver version string' };
-      const major = parseInt(match[1]!, 10);
+      const major = parseInt(match[1] ?? '0', 10);
       if (major >= 1) return { weight: 0.15, score: 90, reason: 'Stable major version >= 1' };
       if (major === 0) {
-        const minor = parseInt(match[2]!, 10);
+        const minor = parseInt(match[2] ?? '0', 10);
         if (minor >= 5) return { weight: 0.15, score: 60, reason: 'Pre-1.0 but minor >= 5' };
         return { weight: 0.15, score: 30, reason: 'Pre-1.0 early-stage version' };
       }
@@ -79,7 +80,7 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'popularity',
-    evaluator: (tool) => {
+    evaluator: (tool): FactorResult => {
       const downloads = tool.downloadCount ?? 0;
       let score: number;
       let reason: string;
@@ -104,7 +105,7 @@ const DEFAULT_FACTORS: Array<{ name: string; evaluator: FactorEvaluator }> = [
   },
   {
     name: 'vulnerabilities',
-    evaluator: (tool) => {
+    evaluator: (tool): FactorResult => {
       const vulns = tool.knownVulnerabilities ?? 0;
       if (vulns === 0) {
         return { weight: 0.15, score: 100, reason: 'No known vulnerabilities' };
@@ -125,6 +126,8 @@ function scoreToLevel(score: number): TrustScore['level'] {
   return 'untrusted';
 }
 
+const DEFAULT_MIN_REQUIRED = 25;
+
 const MIN_REQUIRED_BY_ACTION: Record<string, number> = {
   install: 50,
   execute: 25,
@@ -133,7 +136,7 @@ const MIN_REQUIRED_BY_ACTION: Record<string, number> = {
   delete_file: 80,
   execute_shell: 80,
   network_request: 50,
-  default: 25,
+  default: DEFAULT_MIN_REQUIRED,
 };
 
 export class TrustEvaluator {
@@ -184,7 +187,7 @@ export class TrustEvaluator {
   }
 
   getMinimumRequired(action: string): number {
-    return MIN_REQUIRED_BY_ACTION[action] ?? MIN_REQUIRED_BY_ACTION['default']!;
+    return MIN_REQUIRED_BY_ACTION[action] ?? DEFAULT_MIN_REQUIRED;
   }
 }
 

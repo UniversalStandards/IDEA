@@ -180,13 +180,14 @@ export class RequestNormalizer {
   normalize(raw: unknown, clientHint?: string): NormalizedRequest {
     const clientType = detectClientType(raw, clientHint);
 
+    const traceId = extractTraceId(raw);
     const normalized: NormalizedRequest = {
       id: extractId(raw),
       method: extractMethod(raw, clientType),
       params: extractParams(raw),
       clientType,
       timestamp: new Date(),
-      traceId: extractTraceId(raw),
+      ...(traceId !== undefined ? { traceId } : {}),
     };
 
     logger.debug('Request normalized', {
