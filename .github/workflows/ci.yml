@@ -59,7 +59,7 @@ jobs:
           ENCRYPTION_KEY: test-encryption-key-32-characters!!
       - name: Upload coverage
         if: matrix.node == '20'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage/
@@ -152,7 +152,7 @@ jobs:
         run: npm run build
         working-directory: web
       - name: Upload frontend build artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-next-build
           path: web/.next/
@@ -228,7 +228,7 @@ jobs:
 
       - name: Upload E2E service logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-e2e-service-logs
           path: |
@@ -239,7 +239,7 @@ jobs:
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-playwright-report
           path: web/playwright-report/
