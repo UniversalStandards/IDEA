@@ -99,6 +99,8 @@ const ConfigSchema = z.object({
   ENABLE_GITHUB_REGISTRY: boolEnv(true),
   ENABLE_OFFICIAL_MCP_REGISTRY: boolEnv(true),
   OFFICIAL_MCP_REGISTRY_URL: z.string().url().default('https://registry.modelcontextprotocol.io'),
+  // Per-registry deadline for discovery searches (slow sources are skipped).
+  DISCOVERY_TIMEOUT_MS: intEnv(10_000, 500, 120_000),
   ENABLE_ENTERPRISE_CATALOG: boolEnv(false),
   ENABLE_LOCAL_WORKSPACE_SCAN: boolEnv(true),
 

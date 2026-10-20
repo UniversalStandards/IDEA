@@ -1,4 +1,5 @@
 import { RegistryManager } from '../src/discovery/registry-manager';
+import { _resetConfig } from '../src/config';
 import type { Registry, RegistrySearchOptions, ToolMetadata } from '../src/discovery/types';
 
 function makeTool(overrides: Partial<ToolMetadata> = {}): ToolMetadata {
@@ -54,6 +55,34 @@ describe('RegistryManager', () => {
 
     const results = await manager.search({ query: '' });
     expect(results.map((r) => r.id).sort()).toEqual(['a1', 'b1']);
+  });
+
+  it('skips a registry that stalls past DISCOVERY_TIMEOUT_MS and returns the others', async () => {
+    const original = process.env['DISCOVERY_TIMEOUT_MS'];
+    process.env['DISCOVERY_TIMEOUT_MS'] = '600';
+    _resetConfig();
+    try {
+      class StalledRegistry extends MockRegistry {
+        override async search(): Promise<ToolMetadata[]> {
+          return new Promise<ToolMetadata[]>(() => undefined);
+        }
+        override async getById(): Promise<ToolMetadata | null> {
+          return new Promise<ToolMetadata | null>(() => undefined);
+        }
+      }
+      manager.registerRegistry(new StalledRegistry('stalled', []));
+      manager.registerRegistry(new MockRegistry('fast', [makeTool({ id: 'fast1' })]));
+
+      const started = Date.now();
+      const results = await manager.search({ query: 'deadline-test' });
+      expect(results.map((r) => r.id)).toEqual(['fast1']);
+      expect(Date.now() - started).toBeLessThan(5_000);
+      await expect(manager.getById('fast1')).resolves.toMatchObject({ id: 'fast1' });
+    } finally {
+      if (original === undefined) delete process.env['DISCOVERY_TIMEOUT_MS'];
+      else process.env['DISCOVERY_TIMEOUT_MS'] = original;
+      _resetConfig();
+    }
   });
 
   it('a single failing registry does not block results from others', async () => {

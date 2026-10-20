@@ -57,7 +57,7 @@ jest.mock('../src/observability/metrics', () => ({
 }));
 
 import type NodeCache from 'node-cache';
-import { GithubRegistry } from '../src/discovery/github-registry';
+import { GithubRegistry, rateLimitWaitMs } from '../src/discovery/github-registry';
 import { metrics } from '../src/observability/metrics';
 
 interface RepoOverrides {
@@ -319,7 +319,7 @@ describe('GithubRegistry.search()', () => {
 });
 
 describe('GithubRegistry rate limiting and retries', () => {
-  it('waits for Retry-After on HTTP 429 and then succeeds', async () => {
+  it('waits briefly for a short Retry-After on HTTP 429 and then succeeds', async () => {
     jest.useFakeTimers();
     mockGet
       .mockRejectedValueOnce(axiosError(429, { 'retry-after': '2' }))
@@ -336,37 +336,40 @@ describe('GithubRegistry rate limiting and retries', () => {
     expect(metrics.increment).toHaveBeenCalledWith('github_registry_rate_limits_total');
   });
 
-  it('defaults to a 60s back-off on HTTP 403 without a Retry-After header', async () => {
-    jest.useFakeTimers();
-    mockGet
-      .mockRejectedValueOnce(axiosError(403))
-      .mockResolvedValueOnce({ data: { items: [] } });
+  it('fails fast on a 403 that is not a rate limit (bad token, SSO, forbidden)', async () => {
+    mockGet.mockRejectedValue(axiosError(403));
 
-    const pending = makeRegistry().search({ query: 'x' });
-    await jest.advanceTimersByTimeAsync(59_999);
+    await expect(makeRegistry().search({ query: 'x' })).resolves.toEqual([]);
     expect(mockGet).toHaveBeenCalledTimes(1);
-    await jest.advanceTimersByTimeAsync(1);
-    await pending;
-
-    expect(mockGet).toHaveBeenCalledTimes(2);
   });
 
-  it('caps the rate-limit back-off at 120s', async () => {
-    jest.useFakeTimers();
-    mockGet
-      .mockRejectedValueOnce(axiosError(429, { 'retry-after': '99999' }))
-      .mockResolvedValueOnce({ data: { items: [] } });
+  it('treats a 403 with an exhausted quota as a rate limit and does not stall', async () => {
+    const reset = Math.floor(Date.now() / 1000) + 600;
+    mockGet.mockRejectedValue(
+      axiosError(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) }),
+    );
+    const registry = makeRegistry();
 
-    const pending = makeRegistry().search({ query: 'x' });
-    await jest.advanceTimersByTimeAsync(119_999);
+    const started = Date.now();
+    await expect(registry.search({ query: 'x' })).resolves.toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1_000);
     expect(mockGet).toHaveBeenCalledTimes(1);
-    await jest.advanceTimersByTimeAsync(1);
-    await pending;
 
-    expect(mockGet).toHaveBeenCalledTimes(2);
+    // Circuit open: later searches skip GitHub entirely until the reset time.
+    await expect(registry.search({ query: 'y' })).resolves.toEqual([]);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+    expect(metrics.increment).toHaveBeenCalledWith('github_registry_requests_total', { status: 'rate_limited' });
   });
 
-  it('gives up after repeated rate limiting and returns an empty list', async () => {
+  it('never sleeps for a long Retry-After; it opens the circuit instead', async () => {
+    mockGet.mockRejectedValue(axiosError(429, { 'retry-after': '99999' }));
+    const started = Date.now();
+    await expect(makeRegistry().search({ query: 'x' })).resolves.toEqual([]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(mockGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives up after repeated short rate limits and returns an empty list', async () => {
     jest.useFakeTimers();
     mockGet.mockRejectedValue(axiosError(429, { 'retry-after': '1' }));
 
@@ -374,8 +377,8 @@ describe('GithubRegistry rate limiting and retries', () => {
     await jest.advanceTimersByTimeAsync(10_000);
 
     await expect(pending).resolves.toEqual([]);
-    // Initial attempt + 3 retries.
-    expect(mockGet).toHaveBeenCalledTimes(4);
+    // Initial attempt + 2 brief retries, then the circuit opens.
+    expect(mockGet).toHaveBeenCalledTimes(3);
   });
 
   it('retries server errors with exponential back-off (1s, then 2s)', async () => {
@@ -505,3 +508,26 @@ describe('GithubRegistry.isAvailable()', () => {
     expect(mockGet).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('rateLimitWaitMs()', () => {
+  const err = (status: number, headers: Record<string, string> = {}, data?: unknown): never =>
+    ({ isAxiosError: true, response: { status, headers, data } }) as never;
+
+  it('reads Retry-After, then x-ratelimit-reset, then defaults to 60s', () => {
+    expect(rateLimitWaitMs(err(429, { 'retry-after': '3' }))).toBe(3_000);
+    expect(rateLimitWaitMs(err(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1010' }), 1_000_000)).toBe(10_000);
+    expect(rateLimitWaitMs(err(429))).toBe(60_000);
+    expect(rateLimitWaitMs(err(403, { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': '1' }), 9_000_000)).toBe(0);
+  });
+
+  it('recognizes secondary rate limits by message', () => {
+    expect(rateLimitWaitMs(err(403, {}, { message: 'You have exceeded a secondary rate limit' }))).toBe(60_000);
+  });
+
+  it('returns undefined for non-rate-limit errors', () => {
+    expect(rateLimitWaitMs(err(403))).toBeUndefined();
+    expect(rateLimitWaitMs(err(404))).toBeUndefined();
+    expect(rateLimitWaitMs({ isAxiosError: true } as never)).toBeUndefined();
+  });
+});
+

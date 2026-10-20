@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from 'axios';
+import axios, { type AxiosError, type AxiosInstance } from 'axios';
 import NodeCache from 'node-cache';
 import { config } from '../config';
 import { createLogger } from '../observability/logger';
@@ -38,8 +38,56 @@ const SEARCH_CACHE_KEY_PREFIX = 'gh:search:';
 const LIST_CACHE_KEY = 'gh:list';
 const AVAILABILITY_CACHE_KEY = 'gh:available';
 
+/** Longest back-off slept inside a request (discovery runs in tool calls). */
+const MAX_INLINE_BACKOFF_MS = 5_000;
+const MAX_RATE_LIMIT_RETRIES = 2;
+/** Upper bound for the "skip GitHub until reset" circuit. */
+const MAX_CIRCUIT_MS = 15 * 60_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export class GithubRateLimitedError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super(`GitHub API rate limited; retry in ${Math.ceil(retryAfterMs / 1000)}s`);
+    this.name = 'GithubRateLimitedError';
+  }
+}
+
+/**
+ * How long GitHub asks us to wait, or undefined when the error is not a rate
+ * limit. 429 is always a rate limit; 403 only when GitHub says so (exhausted
+ * quota, a Retry-After header, or a "rate limit" message) — any other 403 is
+ * an authorization failure and must not be retried.
+ */
+export function rateLimitWaitMs(err: AxiosError, nowMs: number = Date.now()): number | undefined {
+  const res = err.response;
+  if (!res) return undefined;
+  const header = (name: string): string | undefined => {
+    const v = (res.headers as Record<string, unknown>)[name];
+    return v === undefined || v === null ? undefined : String(v);
+  };
+  const retryAfter = header('retry-after');
+  const remaining = header('x-ratelimit-remaining');
+  const reset = header('x-ratelimit-reset');
+  const body = res.data as { message?: unknown } | undefined;
+  const mentionsRateLimit = typeof body?.message === 'string' && /rate limit/i.test(body.message);
+
+  const isRateLimit =
+    res.status === 429 ||
+    (res.status === 403 && (retryAfter !== undefined || remaining === '0' || mentionsRateLimit));
+  if (!isRateLimit) return undefined;
+
+  if (retryAfter !== undefined) {
+    const seconds = Number.parseInt(retryAfter, 10);
+    if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
+  }
+  if (reset !== undefined) {
+    const epoch = Number.parseInt(reset, 10);
+    if (Number.isFinite(epoch)) return Math.max(0, epoch * 1000 - nowMs);
+  }
+  return 60_000;
 }
 
 function repoToToolMetadata(repo: GithubRepo): ToolMetadata {
@@ -90,6 +138,8 @@ export class GithubRegistry implements Registry {
 
   private readonly cache: NodeCache;
   private readonly http: AxiosInstance;
+  /** Epoch ms until which GitHub calls are skipped after a long rate limit. */
+  private rateLimitedUntil = 0;
 
   constructor() {
     const ttl = ((): number => {
@@ -126,11 +176,24 @@ export class GithubRegistry implements Registry {
     });
   }
 
+  /**
+   * GitHub API call with bounded retries. Discovery runs inside interactive
+   * MCP tool calls, so it never sleeps longer than MAX_INLINE_BACKOFF_MS:
+   * a longer rate-limit wait opens a short circuit (searches return [] until
+   * the reset time) instead of stalling the caller for minutes. A 403 that is
+   * not a rate limit (bad token, SSO-protected org) fails immediately.
+   */
   private async requestWithRetry<T>(
     path: string,
     params: Record<string, string | number>,
     attempt = 0,
   ): Promise<T> {
+    const now = Date.now();
+    if (this.rateLimitedUntil > now) {
+      metrics.increment('github_registry_requests_total', { status: 'rate_limited' });
+      throw new GithubRateLimitedError(this.rateLimitedUntil - now);
+    }
+
     try {
       const response = await this.http.get<T>(path, { params });
       metrics.increment('github_registry_requests_total', { status: 'success' });
@@ -138,24 +201,22 @@ export class GithubRegistry implements Registry {
     } catch (err) {
       if (axios.isAxiosError(err)) {
         const status = err.response?.status ?? 0;
+        const waitMs = rateLimitWaitMs(err);
 
-        if (status === 403 || status === 429) {
-          const rawHeader = err.response?.headers['retry-after'];
-          const retryAfter = parseInt(
-            rawHeader !== undefined && rawHeader !== null ? String(rawHeader) : '60',
-            10,
-          );
-          const backoffMs = Math.min(retryAfter * 1000, 120_000);
-
-          if (attempt < 3) {
-            logger.warn('GitHub rate limited, backing off', {
-              retryAfterMs: backoffMs,
-              attempt,
-            });
-            metrics.increment('github_registry_rate_limits_total');
-            await sleep(backoffMs);
+        if (waitMs !== undefined) {
+          metrics.increment('github_registry_rate_limits_total');
+          if (waitMs <= MAX_INLINE_BACKOFF_MS && attempt < MAX_RATE_LIMIT_RETRIES) {
+            logger.warn('GitHub rate limited, backing off briefly', { retryAfterMs: waitMs, attempt });
+            await sleep(waitMs);
             return this.requestWithRetry<T>(path, params, attempt + 1);
           }
+          this.rateLimitedUntil = Date.now() + Math.min(waitMs, MAX_CIRCUIT_MS);
+          logger.warn('GitHub rate limited; skipping GitHub discovery until reset', {
+            retryAfterMs: waitMs,
+            hint: 'set GITHUB_TOKEN to raise the limit',
+          });
+          metrics.increment('github_registry_requests_total', { status: 'rate_limited' });
+          throw new GithubRateLimitedError(waitMs);
         }
 
         if (status >= 500 && attempt < 2) {
@@ -207,6 +268,7 @@ export class GithubRegistry implements Registry {
 
       metrics.histogram('github_registry_search_duration_ms', Date.now() - start);
 
+
       const results = data.items.map(repoToToolMetadata);
       this.cache.set(cacheKey, results);
 
@@ -217,6 +279,10 @@ export class GithubRegistry implements Registry {
 
       return results;
     } catch (err) {
+      if (err instanceof GithubRateLimitedError) {
+        logger.debug('GitHub registry skipped (rate limited)', { retryAfterMs: err.retryAfterMs });
+        return [];
+      }
       logger.error('GitHub registry search failed', { query: options.query, err });
       return [];
     }
