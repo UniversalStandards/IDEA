@@ -55,7 +55,14 @@ if (-not $SkipBuild) {
   Step "Building $image"
   $rev = (git rev-parse --short HEAD 2>$null)
   if (-not $rev) { $rev = "unknown" }
-  Invoke-Checked "docker build" { docker build -t $image --build-arg VERSION=$Tag --build-arg VCS_REF=$rev . }
+  # Retried: base-image pulls fail transiently on unreliable connections.
+  $built = $false
+  for ($attempt = 1; $attempt -le 3 -and -not $built; $attempt++) {
+    docker build -t $image --build-arg VERSION=$Tag --build-arg VCS_REF=$rev .
+    $built = ($LASTEXITCODE -eq 0)
+    if (-not $built -and $attempt -lt 3) { Write-Host "    build attempt $attempt failed; retrying in 20s" -ForegroundColor Yellow; Start-Sleep -Seconds 20 }
+  }
+  if (-not $built) { throw "docker build failed after 3 attempts" }
   Ok "Image built"
 }
 

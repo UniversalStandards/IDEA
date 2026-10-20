@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.7
 # =============================================================================
 # Universal Standard MCP Server — production image
 #
@@ -14,6 +13,9 @@
 #
 # Base images are pinned by digest; Dependabot (docker ecosystem) keeps them
 # current. Override NODE_IMAGE / UV_IMAGE to build through a registry mirror.
+# No `# syntax=` directive: the BuildKit frontend built into Docker Engine
+# 23+ supports every instruction used here, so builds do not depend on
+# pulling docker/dockerfile from Docker Hub.
 # =============================================================================
 
 ARG NODE_IMAGE=node:24-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
