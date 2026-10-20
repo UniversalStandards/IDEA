@@ -1,33 +1,34 @@
-import 'dotenv/config';
-import { validateConfig, config } from './config';
-import { lifecycle } from './core/lifecycle';
-import { Server } from './core/server';
-import { auditLog } from './security/audit';
-import { secretStore } from './security/secret-store';
-import { createLogger } from './observability/logger';
+#!/usr/bin/env node
+/**
+ * src/index.ts
+ * Entry point: load .env, validate configuration, then start the hub.
+ */
 
-const logger = createLogger('bootstrap');
+// Must stay first: loads .env before any module reads process.env.
+import './env';
+import { validateConfig } from './config';
 
-async function main(): Promise<void> {
+try {
   validateConfig();
-  const server = new Server(config);
-
-  lifecycle.register('http-server', () => server.stop());
-  lifecycle.register('audit-log', () => auditLog.flush());
-  lifecycle.register('secret-store', () => {
-    secretStore.clear();
-    return Promise.resolve();
-  });
-
-  lifecycle.start();
-  await server.start();
-  lifecycle.onReady();
+} catch (err) {
+  // Plain stderr on purpose: the logger is not loaded yet, and stdout may be
+  // an MCP stdio channel.
+  process.stderr.write(
+    `[universal-standard-mcp-server] ${err instanceof Error ? err.message : String(err)}\n`,
+  );
+  process.exit(1);
 }
 
-main().catch((err: unknown) => {
-  logger.error('Fatal startup error', {
-    err: err instanceof Error ? err.message : String(err),
-    stack: err instanceof Error ? err.stack : undefined,
+import('./main')
+  .then(({ main, reportFatal }) =>
+    main().catch((err: unknown) => {
+      reportFatal(err);
+      process.exit(1);
+    }),
+  )
+  .catch((err: unknown) => {
+    process.stderr.write(
+      `[universal-standard-mcp-server] Fatal startup error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+    );
+    process.exit(1);
   });
-  process.exit(1);
-});

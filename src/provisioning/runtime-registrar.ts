@@ -1,4 +1,6 @@
 import { type ChildProcess, spawn } from 'child_process';
+import * as fs from 'fs';
+import { getDefaultEnvironment } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createLogger } from '../observability/logger';
 import { metrics } from '../observability/metrics';
 import { auditLog } from '../security/audit';
@@ -20,6 +22,82 @@ export interface RegisteredTool {
   process: ChildProcess | undefined;
   pid: number | undefined;
   errorMessage: string | undefined;
+}
+
+/** Everything needed to launch a registered tool as a stdio MCP server. */
+export interface ToolLaunchSpec {
+  readonly command: string;
+  readonly args: string[];
+  readonly cwd: string;
+  /** Tool-specific variables only; callers add the minimal base env. */
+  readonly env: Record<string, string>;
+  readonly timeoutMs: number;
+}
+
+/**
+ * Environment for a tool process: the SDK's minimal safe base (PATH, HOME,
+ * USER, …) plus the tool's own configured variables. The hub's own process
+ * environment — JWT_SECRET, ENCRYPTION_KEY, MCP_AUTH_TOKEN, provider API
+ * keys — is never inherited by third-party tool code.
+ */
+export function buildToolProcessEnv(
+  toolEnv: Record<string, string>,
+  source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+  return { ...getDefaultEnvironment(), ...networkEnv(source), ...toolEnv };
+}
+
+/**
+ * Proxy, trust-store and package-runtime variables. Tools (and npm/uvx)
+ * need these to reach the network from behind a corporate proxy or
+ * TLS-inspecting gateway and to reuse the persistent package caches; they
+ * carry no hub secrets.
+ */
+const NETWORK_ENV_KEYS = [
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  'NODE_EXTRA_CA_CERTS',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
+  'TZ',
+  'LANG',
+  // Package-runtime locations/indexes (uvx for Python servers, npm for npx)
+  'UV_CACHE_DIR',
+  'UV_PYTHON_INSTALL_DIR',
+  'UV_TOOL_DIR',
+  'UV_INDEX_URL',
+  'UV_DEFAULT_INDEX',
+  'PIP_INDEX_URL',
+  'NPM_CONFIG_REGISTRY',
+  'npm_config_registry',
+];
+
+export function networkEnv(source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const key of NETWORK_ENV_KEYS) {
+    const v = source[key];
+    if (v !== undefined && v !== '') out[key] = v;
+  }
+  return out;
+}
+
+/**
+ * Environment for npm itself during installs: the tool-process base plus
+ * npm's own configuration (registry, proxy, cafile, auth) from
+ * npm_config_* / NPM_CONFIG_* variables.
+ */
+export function buildInstallerEnv(source: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const out = buildToolProcessEnv({}, source);
+  for (const [key, value] of Object.entries(source)) {
+    if (value !== undefined && /^npm_config_/i.test(key)) out[key] = value;
+  }
+  return out;
 }
 
 export class RuntimeRegistrar {
@@ -109,9 +187,10 @@ export class RuntimeRegistrar {
       workingDir: entry.config.workingDir,
     });
 
+    fs.mkdirSync(entry.config.workingDir, { recursive: true });
     const proc = spawn(command.cmd, command.args, {
       cwd: entry.config.workingDir,
-      env: { ...process.env, ...entry.config.env },
+      env: buildToolProcessEnv(entry.config.env),
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: false,
     });
@@ -209,6 +288,25 @@ export class RuntimeRegistrar {
     auditLog.record('tool.stop', 'system', toolId, 'success');
 
     logger.info('Tool process stopped', { toolId });
+  }
+
+  /**
+   * Resolve how to launch a registered tool as a stdio MCP server, or
+   * undefined when the tool is unknown or has no resolvable command.
+   */
+  getLaunchSpec(toolId: string): ToolLaunchSpec | undefined {
+    const entry = this.registry.get(toolId);
+    if (!entry) return undefined;
+    const command = this.resolveCommand(entry);
+    if (!command) return undefined;
+    fs.mkdirSync(entry.config.workingDir, { recursive: true });
+    return {
+      command: command.cmd,
+      args: command.args,
+      cwd: entry.config.workingDir,
+      env: { ...entry.config.env },
+      timeoutMs: entry.config.timeout,
+    };
   }
 
   private resolveCommand(entry: RegisteredTool): { cmd: string; args: string[] } | null {

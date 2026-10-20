@@ -59,4 +59,36 @@ describe('ApprovalGateManager', () => {
   it('get() returns undefined for an unknown id', () => {
     expect(gates.get('nope')).toBeUndefined();
   });
+
+  describe('consume()', () => {
+    it('redeems an approved request once for the exact tool and action', () => {
+      const req = gates.request('tool-a', 'install', 'mcp-client', 'reason');
+      gates.decide(req.id, true, 'operator');
+
+      const first = gates.consume(req.id, 'tool-a', 'install', 'mcp-client');
+      expect(first.ok).toBe(true);
+      expect(gates.get(req.id)?.consumedAt).toBeInstanceOf(Date);
+
+      expect(gates.consume(req.id, 'tool-a', 'install', 'mcp-client')).toEqual({ ok: false, reason: 'already_used' });
+    });
+
+    it('refuses an approval issued for a different tool or action', () => {
+      const req = gates.request('tool-a', 'install', 'mcp-client', 'reason');
+      gates.decide(req.id, true, 'operator');
+      expect(gates.consume(req.id, 'tool-b', 'install', 'x')).toEqual({ ok: false, reason: 'mismatch' });
+      expect(gates.consume(req.id, 'tool-a', 'uninstall', 'x')).toEqual({ ok: false, reason: 'mismatch' });
+    });
+
+    it('reports pending, rejected and unknown requests', () => {
+      const pending = gates.request('t', 'a', 'x', 'r');
+      expect(gates.consume(pending.id, 't', 'a', 'x')).toEqual({ ok: false, reason: 'pending' });
+
+      const rejected = gates.request('t', 'a', 'x', 'r');
+      gates.decide(rejected.id, false, 'operator');
+      expect(gates.consume(rejected.id, 't', 'a', 'x')).toEqual({ ok: false, reason: 'rejected' });
+
+      expect(gates.consume('missing', 't', 'a', 'x')).toEqual({ ok: false, reason: 'not_found' });
+    });
+  });
 });
+

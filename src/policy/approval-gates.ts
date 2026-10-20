@@ -37,7 +37,13 @@ export interface ApprovalRequestRecord {
   decidedAt?: Date;
   decidedBy?: string;
   decisionNote?: string;
+  /** Set when an approved request has been used; approvals are single-use. */
+  consumedAt?: Date;
 }
+
+export type ApprovalConsumeResult =
+  | { readonly ok: true; readonly approval: ApprovalRequestRecord }
+  | { readonly ok: false; readonly reason: 'not_found' | 'mismatch' | 'pending' | 'rejected' | 'already_used' };
 
 interface Waiter {
   resolve: (req: ApprovalRequestRecord) => void;
@@ -165,6 +171,24 @@ export class ApprovalGateManager {
 
   get(id: string): ApprovalRequestRecord | undefined {
     return this.requests.get(id);
+  }
+
+  /**
+   * Redeem an approved request for exactly the tool and action it was
+   * granted for. Each approval can be redeemed once, so an approval ID
+   * cannot be replayed to repeat a high-risk action.
+   */
+  consume(id: string, toolId: string, action: string, consumedBy: string): ApprovalConsumeResult {
+    const req = this.requests.get(id);
+    if (!req) return { ok: false, reason: 'not_found' };
+    if (req.toolId !== toolId || req.action !== action) return { ok: false, reason: 'mismatch' };
+    if (req.status === ApprovalStatus.PENDING) return { ok: false, reason: 'pending' };
+    if (req.status !== ApprovalStatus.APPROVED) return { ok: false, reason: 'rejected' };
+    if (req.consumedAt !== undefined) return { ok: false, reason: 'already_used' };
+
+    req.consumedAt = new Date();
+    auditLog.record('approval.consumed', consumedBy, `${toolId}:${action}`, 'success', id);
+    return { ok: true, approval: req };
   }
 
   listPending(): ApprovalRequestRecord[] {

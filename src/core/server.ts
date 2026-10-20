@@ -1,6 +1,6 @@
 import express, { type Express } from 'express';
 import { createLogger } from '../observability/logger';
-import { type Config } from '../config';
+import { type Config, isStdioOnly } from '../config';
 import { runtimeManager } from './runtime-manager';
 import { TransportManager } from '../transport/index';
 
@@ -27,8 +27,10 @@ export class Server {
     await this.transportManager.start();
 
     logger.info('Server startup complete', {
-      port: this.cfg.PORT,
       transport: this.cfg.MCP_TRANSPORT,
+      ...(isStdioOnly(this.cfg)
+        ? {}
+        : { port: this.cfg.PORT, ...(this.cfg.MCP_HTTP_ENABLED ? { mcpPath: this.cfg.MCP_HTTP_PATH } : {}) }),
     });
   }
 
