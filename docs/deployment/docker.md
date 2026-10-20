@@ -46,38 +46,55 @@ proxy (`HTTPS_PROXY`, `NO_PROXY`) and trust-store variables to npm, `uvx` and ev
 
 ## 2. Docker Desktop MCP Toolkit (stdio)
 
-### 2.1 Add the server to a custom catalog
+### 2.1 One-step setup (Windows)
 
-From the repository root, after building the image (§1):
-
-```bash
-docker mcp catalog create universalstandards/mcp-catalog:latest \
-  --title "Universal Standards" \
-  --server file://./docker/mcp-catalog/universal-standard.yaml
+```powershell
+.\scripts\deploy-docker-desktop.ps1 -AutoApprove "official:memory,official:time" -Connect claude-desktop
 ```
 
-Then in Docker Desktop: **MCP Toolkit → Catalog → Universal Standards → Universal Standard MCP Server → Add**.
-To share the catalog with your team, push it (`docker mcp catalog push universalstandards/mcp-catalog:latest`)
-and have them use **Import catalog** with the same OCI reference.
+Builds the image, verifies stdio, creates the catalog and the `universal-standard` profile, sets the
+pre-approved tools and connects the listed clients. Add `-Compose` to also start the HTTP service (§4).
 
-### 2.2 What the gateway runs
+### 2.2 Manual setup (any OS)
+
+The MCP CLI only reads server definition files from its catalogs directory, so copy the file there first:
+
+```bash
+mkdir -p ~/.docker/mcp/catalogs
+cp docker/mcp-catalog/universal-standard.yaml ~/.docker/mcp/catalogs/
+docker mcp catalog create universalstandards/mcp-catalog:latest \
+  --title "Universal Standards" --server file://universal-standard.yaml
+docker mcp profile create --name "Universal Standard" --id universal-standard \
+  --server catalog://universalstandards/mcp-catalog:latest/universal-standard
+docker mcp profile config universal-standard \
+  --set universal-standard.auto_approve_tools=official:memory,official:time   # optional
+```
+
+The server then appears in Docker Desktop under **MCP Toolkit → Profiles → Universal Standard** (and the
+catalog under **Catalog → Universal Standards**). Any stdio client can use it through the gateway:
+`docker mcp gateway run --profile universal-standard`. To share the catalog, push it
+(`docker mcp catalog push universalstandards/mcp-catalog:latest`) and have teammates use **Import catalog**
+with the same OCI reference.
+
+### 2.3 What the gateway runs
 
 `docker/mcp-catalog/universal-standard.yaml` launches the image with `MCP_TRANSPORT=stdio` and the named volume
 `universal-standard-mcp-data:/data`, so installed tools, their data (e.g. the memory server's graph) and the
 uv/Python cache persist across sessions. The server is `longLived`, so installed tools stay warm.
 
-### 2.3 Settings
+### 2.4 Settings
 
 | Setting | Purpose |
 |---|---|
-| 2.3.1 `auto_approve_tools` | Comma-separated tool IDs pre-approved for install/execute, e.g. `official:memory,official:time` |
+| 2.4.1 `auto_approve_tools` | Comma-separated tool IDs pre-approved for install/execute, e.g. `official:memory,official:time` |
 
-### 2.4 Behaviour in stdio mode
+### 2.5 Behaviour in stdio mode
 
-- 2.4.1 stdout carries only MCP JSON-RPC; every log line goes to stderr.
-- 2.4.2 No port is opened (set `STDIO_ENABLE_HTTP=true` to also serve health/admin/REST).
-- 2.4.3 The container exits as soon as the client closes stdin.
-- 2.4.4 `JWT_SECRET` / `ENCRYPTION_KEY` may be omitted: with no network listener the hub generates per-process
+- 2.5.1 stdout carries only MCP JSON-RPC; every log line goes to stderr.
+- 2.5.2 No port is opened (set `STDIO_ENABLE_HTTP=true` to also serve health/admin/REST).
+- 2.5.3 The container exits as soon as the client closes stdin.
+- 2.5.4 Approval prompts (MCP elicitation) are forwarded by the Docker MCP gateway to the client.
+- 2.5.5 `JWT_SECRET` / `ENCRYPTION_KEY` may be omitted: with no network listener the hub generates per-process
   values (logged as a warning). Any mode with a listener refuses to start without real secrets.
 
 ---
