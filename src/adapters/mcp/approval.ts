@@ -15,6 +15,7 @@
  * client's user, and approvalIds are decided out of band (admin API / CLI).
  */
 
+import { createHash } from 'crypto';
 import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js';
 import { approvalGates } from '../../policy/approval-gates';
 import { auditLog } from '../../security/audit';
@@ -44,7 +45,32 @@ export interface ApprovalInput {
   readonly autoApproved: ReadonlySet<string>;
   readonly timeoutMs: number;
   readonly approvalId?: string | undefined;
+  /**
+   * The exact payload being approved (call arguments, policy body, launch
+   * args). Its fingerprint is recorded with the request, and an approvalId
+   * only redeems for an identical payload.
+   */
+  readonly payload: unknown;
   readonly metadata?: Record<string, unknown>;
+}
+
+/** Deterministic JSON: object keys sorted at every level. */
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value) ?? 'null';
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
+}
+
+/** SHA-256 fingerprint binding an approval to one payload. */
+export function payloadFingerprint(payload: unknown): string {
+  return `sha256:${createHash('sha256').update(canonicalJson(payload)).digest('hex')}`;
 }
 
 function supportsElicitation(channel: ElicitationChannel): boolean {
@@ -57,6 +83,7 @@ function supportsElicitation(channel: ElicitationChannel): boolean {
 
 export async function obtainApproval(input: ApprovalInput): Promise<ApprovalOutcome> {
   const { toolId, action, actor } = input;
+  const binding = payloadFingerprint(input.payload ?? null);
 
   if (input.autoApproved.has(toolId)) {
     auditLog.record('approval.auto', 'operator:AUTO_APPROVE_TOOLS', `${toolId}:${action}`, 'success', undefined, {
@@ -66,7 +93,7 @@ export async function obtainApproval(input: ApprovalInput): Promise<ApprovalOutc
   }
 
   if (input.approvalId !== undefined) {
-    const consumed = approvalGates.consume(input.approvalId, toolId, action, actor);
+    const consumed = approvalGates.consume(input.approvalId, toolId, action, actor, binding);
     if (consumed.ok) {
       return { status: 'approved', via: 'approval-id', approvalId: input.approvalId };
     }
@@ -75,14 +102,14 @@ export async function obtainApproval(input: ApprovalInput): Promise<ApprovalOutc
     }
     const reasons: Record<typeof consumed.reason, string> = {
       not_found: 'approvalId not found (approvals do not survive a hub restart)',
-      mismatch: 'approvalId was issued for a different tool or action',
+      mismatch: 'approvalId was issued for a different tool, action or payload (arguments must match the approved request exactly)',
       rejected: 'the approval request was rejected or timed out',
       already_used: 'approvalId has already been used; approvals are single-use',
     };
     return { status: 'rejected', reason: reasons[consumed.reason], approvalId: input.approvalId };
   }
 
-  const request = approvalGates.request(toolId, action, actor, input.summary, input.metadata);
+  const request = approvalGates.request(toolId, action, actor, input.summary, { ...input.metadata, binding });
 
   if (!supportsElicitation(input.channel)) {
     return { status: 'pending', approvalId: request.id };

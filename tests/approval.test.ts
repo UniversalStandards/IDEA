@@ -9,7 +9,13 @@ jest.mock('../src/observability/logger', () => ({
   createLogger: () => ({ info: jest.fn(), debug: jest.fn(), warn: jest.fn(), error: jest.fn() }),
 }));
 
-import { obtainApproval, pendingApprovalMessage, type ElicitationChannel } from '../src/adapters/mcp/approval';
+import {
+  canonicalJson,
+  obtainApproval,
+  payloadFingerprint,
+  pendingApprovalMessage,
+  type ElicitationChannel,
+} from '../src/adapters/mcp/approval';
 import { approvalGates } from '../src/policy/approval-gates';
 import { auditLog } from '../src/security/audit';
 import { ApprovalStatus } from '../src/types/index';
@@ -33,6 +39,7 @@ function input(overrides: Partial<Parameters<typeof obtainApproval>[0]> = {}): P
     actor: 'mcp-client',
     autoApproved: new Set<string>(),
     timeoutMs: 1000,
+    payload: { args: [] },
     ...overrides,
   };
 }
@@ -80,14 +87,37 @@ describe('obtainApproval()', () => {
     await expect(obtainApproval(input({ approvalId: id }))).resolves.toEqual({ status: 'pending', approvalId: id });
   });
 
+  it('binds an approvalId to the exact payload it was approved for', async () => {
+    const pending = await obtainApproval(input({ action: 'write_file', payload: { params: { path: '/data/a.txt' } } }));
+    const id = (pending as { approvalId: string }).approvalId;
+    approvalGates.decide(id, true, 'operator');
+
+    const swapped = await obtainApproval(
+      input({ action: 'write_file', approvalId: id, payload: { params: { path: '/etc/passwd' } } }),
+    );
+    expect(swapped).toMatchObject({ status: 'rejected', reason: expect.stringContaining('payload') });
+
+    // Key order does not matter; the canonical payload does.
+    const reordered = await obtainApproval(
+      input({ action: 'write_file', approvalId: id, payload: { params: { path: '/data/a.txt' } } }),
+    );
+    expect(reordered).toMatchObject({ status: 'approved', via: 'approval-id' });
+  });
+
   it.each([
     ['not_found', 'not found'],
-    ['mismatch', 'different tool or action'],
+    ['mismatch', 'different tool, action or payload'],
     ['rejected', 'rejected or timed out'],
   ])('explains a %s approvalId', async (kind, text) => {
     let id = '00000000-0000-4000-8000-000000000000';
     if (kind !== 'not_found') {
-      const req = approvalGates.request(kind === 'mismatch' ? 'other:tool' : 'official:memory', 'install', 'x', 'r');
+      const req = approvalGates.request(
+        kind === 'mismatch' ? 'other:tool' : 'official:memory',
+        'install',
+        'x',
+        'r',
+        { binding: payloadFingerprint({ args: [] }) },
+      );
       approvalGates.decide(req.id, kind !== 'rejected', 'operator');
       id = req.id;
     }
@@ -133,6 +163,21 @@ describe('obtainApproval()', () => {
       elicitInput: jest.fn(),
     };
     await expect(obtainApproval(input({ channel: ch }))).resolves.toMatchObject({ status: 'pending' });
+  });
+});
+
+describe('canonicalJson() / payloadFingerprint()', () => {
+  it('sorts keys at every level and drops undefined values', () => {
+    expect(canonicalJson({ b: 1, a: { d: [3, { y: 1, x: 2 }], c: undefined } })).toBe('{"a":{"d":[3,{"x":2,"y":1}]},"b":1}');
+    expect(canonicalJson(null)).toBe('null');
+    expect(canonicalJson(undefined)).toBe('null');
+    expect(canonicalJson('s')).toBe('"s"');
+  });
+
+  it('fingerprints equal payloads identically regardless of key order', () => {
+    expect(payloadFingerprint({ a: 1, b: 2 })).toBe(payloadFingerprint({ b: 2, a: 1 }));
+    expect(payloadFingerprint({ a: 1 })).not.toBe(payloadFingerprint({ a: 2 }));
+    expect(payloadFingerprint({})).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 });
 

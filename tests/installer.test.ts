@@ -50,7 +50,7 @@ jest.mock('../src/policy/approval-gates', () => ({
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { Installer, packagesForTool, safeInstallDirName } from '../src/provisioning/installer';
+import { Installer, packagesForTool, safeInstallDirName, unlaunchableReason } from '../src/provisioning/installer';
 import { runtimeRegistrar } from '../src/provisioning/runtime-registrar';
 import type { ToolMetadata } from '../src/discovery/types';
 
@@ -111,7 +111,33 @@ describe('helpers', () => {
   });
 });
 
+describe('unlaunchableReason()', () => {
+  it('accepts tools with an install command, entry point or metadata.command', () => {
+    expect(unlaunchableReason(TOOL)).toBeUndefined();
+    const { installCommand: _ic, ...bare } = TOOL;
+    expect(unlaunchableReason({ ...bare, entryPoint: '/opt/x/index.js' })).toBeUndefined();
+    expect(unlaunchableReason({ ...bare, metadata: { command: 'uvx thing' } })).toBeUndefined();
+  });
+
+  it('explains why a tool cannot be launched', () => {
+    const { installCommand: _ic, ...bare } = TOOL;
+    expect(unlaunchableReason(bare)).toContain('no launch command');
+    expect(unlaunchableReason({ ...bare, installCommand: '   ' })).toContain('no launch command');
+    expect(unlaunchableReason({ ...TOOL, metadata: { installable: false, unsupportedReason: 'Remote-only server' } })).toBe(
+      'Remote-only server',
+    );
+    expect(unlaunchableReason({ ...TOOL, metadata: { installable: false } })).toBe('marked not installable by its registry');
+  });
+});
+
 describe('Installer.assess()', () => {
+  it('denies tools that can never be launched, before any approval', () => {
+    mockEvaluate.mockReturnValue({ allowed: false, requiresApproval: true, reasons: [] });
+    const assessment = installer.assess({ ...TOOL, metadata: { installable: false, unsupportedReason: 'Remote-only server' } });
+    expect(assessment).toMatchObject({ requiresApproval: false });
+    expect(assessment.denied).toBe('Tool official:memory cannot be installed: Remote-only server');
+  });
+
   it('allows a trusted tool when policy allows it', () => {
     expect(installer.assess(TOOL)).toMatchObject({ requiresApproval: false, trustScore: 80, minimumTrust: 50 });
     expect(installer.assess(TOOL).denied).toBeUndefined();
@@ -225,6 +251,45 @@ describe('Installer.install()', () => {
     const result = await installer.install({ ...TOOL, id: 'evil', name: '../../outside' });
     expect(result.success).toBe(true);
     expect(result.path?.startsWith(path.join(dir, 'installed'))).toBe(true);
+  });
+});
+
+describe('multiple hub processes sharing one data directory', () => {
+  function sibling(): Installer {
+    return new Installer({ baseDir: path.join(dir, 'installed'), stateFile: path.join(dir, 'state.json') });
+  }
+
+  it('serializes npm runs for the same tool across installers', async () => {
+    let active = 0;
+    let maxActive = 0;
+    mockExecFile.mockImplementation((_c: string, _a: string[], _o: unknown, cb: (e: unknown, r: unknown) => void) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      setTimeout(() => {
+        active--;
+        cb(null, { stdout: '', stderr: '' });
+      }, 40);
+    });
+
+    const [a, b] = await Promise.all([installer.install(TOOL), sibling().install(TOOL)]);
+
+    expect(a.success && b.success).toBe(true);
+    expect(mockExecFile).toHaveBeenCalledTimes(2);
+    expect(maxActive).toBe(1);
+    expect(fs.existsSync(path.join(dir, 'installed', '.locks', 'memory.lock'))).toBe(false);
+  });
+
+  it('merges install records instead of overwriting each other', async () => {
+    const other = sibling();
+    await installer.install(TOOL);
+    await other.install({ ...TOOL, id: 'official:time', name: 'time', installCommand: 'uvx mcp-server-time' });
+
+    const state = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf-8')) as { tools: Array<{ tool: { id: string } }> };
+    expect(state.tools.map((r) => r.tool.id).sort()).toEqual(['official:memory', 'official:time']);
+
+    await installer.uninstall(TOOL.id);
+    const after = JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf-8')) as { tools: Array<{ tool: { id: string } }> };
+    expect(after.tools.map((r) => r.tool.id)).toEqual(['official:time']);
   });
 });
 

@@ -17,6 +17,7 @@ import * as path from 'path';
 import { z } from 'zod';
 import { createLogger } from '../observability/logger';
 import type { ToolMetadata } from '../discovery/types';
+import { withFileLock } from './file-lock';
 
 const logger = createLogger('install-state');
 
@@ -98,10 +99,20 @@ export class InstallStateStore {
     }
   }
 
+  /**
+   * Read-modify-write under a cross-process lock, so hub processes sharing
+   * one data directory never overwrite each other's install records.
+   */
+  async update(mutate: (records: InstalledRecord[]) => InstalledRecord[]): Promise<void> {
+    await withFileLock(`${this.filePath}.lock`, { timeoutMs: 30_000, staleMs: 60_000, pollMs: 50 }, () => {
+      this.save(mutate(this.load()));
+    });
+  }
+
   save(records: InstalledRecord[]): void {
     const dir = path.dirname(this.filePath);
     fs.mkdirSync(dir, { recursive: true });
-    const tmp = `${this.filePath}.${process.pid}.tmp`;
+    const tmp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
     const body = JSON.stringify({ version: STATE_VERSION, tools: records }, null, 2);
     fs.writeFileSync(tmp, body, { encoding: 'utf-8', mode: 0o600 });
     fs.renameSync(tmp, this.filePath);

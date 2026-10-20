@@ -174,14 +174,26 @@ export class ApprovalGateManager {
   }
 
   /**
-   * Redeem an approved request for exactly the tool and action it was
-   * granted for. Each approval can be redeemed once, so an approval ID
-   * cannot be replayed to repeat a high-risk action.
+   * Redeem an approved request for exactly the tool, action and (when bound)
+   * payload it was granted for. Each approval can be redeemed once, so an
+   * approval ID cannot be replayed or reused for different arguments.
    */
-  consume(id: string, toolId: string, action: string, consumedBy: string): ApprovalConsumeResult {
+  consume(
+    id: string,
+    toolId: string,
+    action: string,
+    consumedBy: string,
+    binding?: string,
+  ): ApprovalConsumeResult {
     const req = this.requests.get(id);
     if (!req) return { ok: false, reason: 'not_found' };
     if (req.toolId !== toolId || req.action !== action) return { ok: false, reason: 'mismatch' };
+    // An approval bound to a payload fingerprint (arguments, policy body, …)
+    // only authorizes that exact payload.
+    const recorded = req.metadata?.['binding'];
+    if ((recorded !== undefined || binding !== undefined) && recorded !== binding) {
+      return { ok: false, reason: 'mismatch' };
+    }
     if (req.status === ApprovalStatus.PENDING) return { ok: false, reason: 'pending' };
     if (req.status !== ApprovalStatus.APPROVED) return { ok: false, reason: 'rejected' };
     if (req.consumedAt !== undefined) return { ok: false, reason: 'already_used' };

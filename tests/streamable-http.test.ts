@@ -201,6 +201,18 @@ describe('StreamableHttpTransport', () => {
     await first.close();
   });
 
+  it('never exceeds the session cap under a concurrent initialize burst', async () => {
+    h = await start(baseConfig({ MCP_MAX_SESSIONS: 2 }));
+    const url = h.url;
+    const responses = await Promise.all(
+      Array.from({ length: 6 }, () => post(url, INIT, { authorization: `Bearer ${TOKEN}` })),
+    );
+    const statuses = responses.map((r) => r.status);
+    expect(statuses.filter((s) => s === 200)).toHaveLength(2);
+    expect(statuses.filter((s) => s === 503)).toHaveLength(4);
+    expect(h.transport.getSessionCount()).toBe(2);
+  });
+
   it('reaps sessions idle past MCP_SESSION_IDLE_TIMEOUT_MS', async () => {
     let now = 1_000_000;
     h = await start(baseConfig({ MCP_SESSION_IDLE_TIMEOUT_MS: 60_000 }), () => now);

@@ -58,6 +58,22 @@ describe('InstallStateStore', () => {
     }
   });
 
+  it('applies read-modify-write updates under a lock without losing concurrent changes', async () => {
+    const file = path.join(dir, 'state.json');
+    const a = new InstallStateStore(file);
+    const b = new InstallStateStore(file);
+    const rec = (id: string): InstalledRecord => ({ ...record, tool: { ...record.tool, id } });
+
+    await Promise.all([
+      a.update((rs) => [...rs, rec('one')]),
+      b.update((rs) => [...rs, rec('two')]),
+      a.update((rs) => [...rs, rec('three')]),
+    ]);
+
+    expect(a.load().map((r) => r.tool.id).sort()).toEqual(['one', 'three', 'two']);
+    expect(fs.existsSync(`${file}.lock`)).toBe(false);
+  });
+
   it('ignores a file with the wrong schema', () => {
     const file = path.join(dir, 'bad.json');
     fs.writeFileSync(file, JSON.stringify({ version: 99, tools: [] }));

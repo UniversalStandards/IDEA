@@ -345,7 +345,7 @@ describe('tool: install_tool', () => {
 
     expect(installer.assess).toHaveBeenCalledWith(TOOL, 'mcp-client');
     expect(mockObtainApproval).toHaveBeenCalledWith(
-      expect.objectContaining({ toolId: TOOL.id, action: 'install', actor: 'mcp-client' }),
+      expect.objectContaining({ toolId: TOOL.id, action: 'install', actor: 'mcp-client', payload: { args: ['/data/ws'] } }),
     );
     expect(installer.install).toHaveBeenCalledWith(TOOL, {
       preApproved: true,
@@ -563,7 +563,12 @@ describe('tool: execute_capability', () => {
     jest.mocked(policyEngine.evaluate).mockReturnValue({ allowed: false, requiresApproval: true, reasons: [] });
     await handlerFor('execute_capability')({ toolId: TOOL.id, action: 'read_graph', params: { a: 1 }, approvalId: 'x' });
     expect(mockObtainApproval).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'read_graph', approvalId: 'x', metadata: { params: { a: 1 } } }),
+      expect.objectContaining({
+        action: 'read_graph',
+        approvalId: 'x',
+        payload: { params: { a: 1 } },
+        metadata: { params: { a: 1 } },
+      }),
     );
     expect(downstream.callTool).toHaveBeenCalledWith(TOOL.id, 'read_graph', { a: 1 });
   });
@@ -664,7 +669,7 @@ describe('tool: manage_policy', () => {
   it('validates, approves, and adds a declarative policy', async () => {
     const body = payload(await handlerFor('manage_policy')({ action: 'add', policy: POLICY }));
     expect(mockObtainApproval).toHaveBeenCalledWith(
-      expect.objectContaining({ toolId: 'hub:policy', action: 'modify_config' }),
+      expect.objectContaining({ toolId: 'hub:policy', action: 'modify_config', payload: { change: 'add', policy: POLICY } }),
     );
     const added = jest.mocked(policyEngine.addPolicy).mock.calls[0]?.[0];
     expect(added?.id).toBe('allow-memory');

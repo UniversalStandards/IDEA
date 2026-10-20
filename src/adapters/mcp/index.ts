@@ -112,6 +112,7 @@ export class MCPAdapter {
     action: string,
     summary: string,
     approvalId: string | undefined,
+    payload: unknown,
     metadata?: Record<string, unknown>,
   ): Promise<ApprovalOutcome> {
     return obtainApproval({
@@ -120,6 +121,7 @@ export class MCPAdapter {
       action,
       summary,
       actor: ACTOR,
+      payload,
       autoApproved: readSetting(() => getAutoApprovedTools(config), new Set<string>()),
       timeoutMs: readSetting(() => config.APPROVAL_ELICITATION_TIMEOUT_MS, 120_000),
       approvalId,
@@ -211,7 +213,8 @@ export class MCPAdapter {
               'install',
               `Install ${tool.name}@${tool.version} from ${tool.source} (trust ${assessment.trustScore}/${assessment.minimumTrust} required)`,
               args.approvalId,
-              { trustScore: assessment.trustScore, installCommand: tool.installCommand },
+              { args: args.args ?? [] },
+              { trustScore: assessment.trustScore, installCommand: tool.installCommand, args: args.args ?? [] },
             );
             const blocked = this.approvalBlock(outcome, 'install_tool');
             if (blocked) return blocked;
@@ -281,7 +284,7 @@ export class MCPAdapter {
             return errorResult(`Policy denied uninstall: ${decision.reasons.join(', ')}`);
           }
           if (decision.requiresApproval) {
-            const outcome = await this.approve(args.toolId, 'uninstall', `Uninstall ${args.toolId}`, args.approvalId);
+            const outcome = await this.approve(args.toolId, 'uninstall', `Uninstall ${args.toolId}`, args.approvalId, {});
             const blocked = this.approvalBlock(outcome, 'uninstall_tool');
             if (blocked) return blocked;
           }
@@ -404,8 +407,9 @@ export class MCPAdapter {
             const outcome = await this.approve(
               args.toolId,
               args.action,
-              `Run ${args.action} on ${args.toolId}`,
+              `Run ${args.action} on ${args.toolId} with ${JSON.stringify(args.params ?? {}).slice(0, 500)}`,
               args.approvalId,
+              { params: args.params ?? {} },
               { params: args.params ?? {} },
             );
             const blocked = this.approvalBlock(outcome, 'execute_capability');
@@ -511,9 +515,14 @@ export class MCPAdapter {
             apply = (): unknown => ({ removed: policyEngine.removePolicy(policyId), id: policyId });
           }
 
-          const outcome = await this.approve(POLICY_RESOURCE, 'modify_config', summary, args.approvalId, {
-            change: args.action,
-          });
+          const outcome = await this.approve(
+            POLICY_RESOURCE,
+            'modify_config',
+            summary,
+            args.approvalId,
+            { change: args.action, policy: args.policy },
+            { change: args.action, policy: args.policy },
+          );
           const blocked = this.approvalBlock(outcome, 'manage_policy');
           if (blocked) return blocked;
 

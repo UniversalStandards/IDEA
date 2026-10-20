@@ -115,6 +115,8 @@ export class StreamableHttpTransport implements ITransport {
   private readonly allowedHosts: string[];
   private reaper: NodeJS.Timeout | undefined;
   private initialized = false;
+  /** Initialize requests admitted but not yet registered as sessions. */
+  private pendingInitializations = 0;
 
   constructor(private readonly options: StreamableHttpTransportOptions) {
     this.adapterFactory = options.adapterFactory ?? ((): McpSessionAdapter => new MCPAdapter());
@@ -228,14 +230,21 @@ export class StreamableHttpTransport implements ITransport {
         return;
       }
 
-      if (this.sessions.size >= this.options.config.MCP_MAX_SESSIONS) {
+      // Pending initializations count against capacity (the slot is
+      // reserved synchronously), so a concurrent burst cannot overshoot.
+      if (this.sessions.size + this.pendingInitializations >= this.options.config.MCP_MAX_SESSIONS) {
         metrics.increment('mcp_http_sessions_rejected_total', { reason: 'capacity' });
         res.setHeader('Retry-After', '30');
         sendJsonRpcError(res, 503, JSONRPC_SERVER_ERROR, 'Session capacity reached; retry later');
         return;
       }
 
-      await this.createSession(req, res);
+      this.pendingInitializations++;
+      try {
+        await this.createSession(req, res);
+      } finally {
+        this.pendingInitializations--;
+      }
     } catch (err) {
       logger.error('MCP HTTP request failed', { err: err instanceof Error ? err.message : String(err) });
       sendJsonRpcError(res, 500, JSONRPC_SERVER_ERROR, 'Internal server error');

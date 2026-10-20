@@ -15,6 +15,7 @@ import { dependencyResolver } from './dependency-resolver';
 import { configGenerator } from './config-generator';
 import { buildInstallerEnv, runtimeRegistrar, type RegisteredTool } from './runtime-registrar';
 import { InstallStateStore, type InstalledRecord } from './install-state';
+import { withFileLock } from './file-lock';
 
 const logger = createLogger('installer');
 const execFileAsync = promisify(execFile);
@@ -91,6 +92,24 @@ export function packagesForTool(tool: ToolMetadata, explicit: string[]): string[
   if (pkg === undefined) return [];
   // npm package spec: optional @scope/, name, optional @version.
   return /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(@[\w.^~<>=*|-]+)?$/i.test(pkg) ? [pkg] : [];
+}
+
+/**
+ * Why a tool cannot be launched as a stdio MCP server, or undefined when it
+ * can. Checked before approval so nobody is asked to approve an install that
+ * could never run.
+ */
+export function unlaunchableReason(tool: ToolMetadata): string | undefined {
+  const meta = tool.metadata ?? {};
+  if (meta['installable'] === false) {
+    const reason = meta['unsupportedReason'];
+    return typeof reason === 'string' && reason.length > 0 ? reason : 'marked not installable by its registry';
+  }
+  const hasCommand =
+    (tool.installCommand?.trim() ?? '') !== '' ||
+    (tool.entryPoint?.trim() ?? '') !== '' ||
+    (typeof meta['command'] === 'string' && meta['command'].trim() !== '');
+  return hasCommand ? undefined : 'no launch command (installCommand, entryPoint or metadata.command)';
 }
 
 function validateArgs(args: string[] | undefined): string[] {
@@ -201,6 +220,10 @@ export class Installer extends EventEmitter {
       minimumTrust,
     };
 
+    const unlaunchable = unlaunchableReason(tool);
+    if (unlaunchable !== undefined) {
+      return { ...base, denied: `Tool ${tool.id} cannot be installed: ${unlaunchable}`, requiresApproval: false };
+    }
     if (!decision.allowed && !decision.requiresApproval) {
       return { ...base, denied: `Policy denied installation: ${decision.reasons.join('; ')}`, requiresApproval: false };
     }
@@ -272,20 +295,33 @@ export class Installer extends EventEmitter {
         }
       }
 
-      // Step 4: dependency resolution
-      const resolved = dependencyResolver.resolve(tool);
-      if (resolved.conflicts.length > 0) {
-        logger.warn('Dependency conflicts detected, proceeding with caution', {
-          toolId: tool.id,
-          conflicts: resolved.conflicts,
-        });
-      }
-
-      // Step 5: npm install into an isolated per-tool directory
+      // Steps 4–7 run under a cross-process lock on this tool's install
+      // directory: hub processes sharing the data volume (e.g. several stdio
+      // containers) must never run npm in the same directory concurrently.
       installDir = this.installDirFor(tool);
-      createdDir = !fs.existsSync(installDir);
-      const packages = packagesForTool(tool, resolved.installOrder);
-      await this.npmInstall(tool, packages, installDir);
+      const dir = installDir;
+      const installTimeout = readConfig(() => config.INSTALL_TIMEOUT_MS, 300_000);
+      const lockPath = path.join(this.baseDir, '.locks', `${path.basename(dir)}.lock`);
+      const packages = await withFileLock(
+        lockPath,
+        { timeoutMs: installTimeout + 30_000, staleMs: installTimeout + 60_000 },
+        async () => {
+          // Step 4: dependency resolution
+          const resolved = dependencyResolver.resolve(tool);
+          if (resolved.conflicts.length > 0) {
+            logger.warn('Dependency conflicts detected, proceeding with caution', {
+              toolId: tool.id,
+              conflicts: resolved.conflicts,
+            });
+          }
+
+          // Step 5: npm install into an isolated per-tool directory
+          createdDir = !fs.existsSync(dir);
+          const toInstall = packagesForTool(tool, resolved.installOrder);
+          await this.npmInstall(tool, toInstall, dir);
+          return toInstall;
+        },
+      );
 
       // Step 6: runtime config — the tool runs from its install directory so
       // `npx <pkg>` resolves the locally installed package
@@ -307,7 +343,12 @@ export class Installer extends EventEmitter {
       };
       this.installed.set(tool.id, result);
       this.installArgs.set(tool.id, args);
-      this.persist();
+      await this.persistUpsert({
+        tool,
+        args,
+        installPath: installDir,
+        installedAt: result.installedAt.toISOString(),
+      });
 
       metrics.increment('tools_installed_total', { source: tool.source });
       metrics.histogram('tool_install_duration_ms', Date.now() - start);
@@ -355,7 +396,7 @@ export class Installer extends EventEmitter {
 
     this.installed.delete(toolId);
     this.installArgs.delete(toolId);
-    this.persist();
+    await this.persistRemove(toolId);
 
     auditLog.record('tool.uninstall', actor, toolId, 'success');
     metrics.increment('tools_uninstalled_total');
@@ -424,17 +465,17 @@ export class Installer extends EventEmitter {
     return rel.length > 0 && !rel.startsWith('..') && !path.isAbsolute(rel);
   }
 
-  private persist(): void {
-    const records: InstalledRecord[] = Array.from(this.installed.values())
-      .filter((r) => r.success && r.path !== undefined)
-      .map((r) => ({
-        tool: r.tool,
-        args: this.installArgs.get(r.tool.id) ?? [],
-        installPath: r.path ?? '',
-        installedAt: r.installedAt.toISOString(),
-      }));
+  private async persistUpsert(record: InstalledRecord): Promise<void> {
+    await this.updateState((records) => [...records.filter((r) => r.tool.id !== record.tool.id), record]);
+  }
+
+  private async persistRemove(toolId: string): Promise<void> {
+    await this.updateState((records) => records.filter((r) => r.tool.id !== toolId));
+  }
+
+  private async updateState(mutate: (records: InstalledRecord[]) => InstalledRecord[]): Promise<void> {
     try {
-      this.stateStore.save(records);
+      await this.stateStore.update(mutate);
     } catch (err) {
       // Non-fatal: the install itself succeeded; it just will not survive a restart.
       logger.error('Failed to persist install state', {

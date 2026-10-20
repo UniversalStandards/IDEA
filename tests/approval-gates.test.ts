@@ -79,6 +79,20 @@ describe('ApprovalGateManager', () => {
       expect(gates.consume(req.id, 'tool-a', 'uninstall', 'x')).toEqual({ ok: false, reason: 'mismatch' });
     });
 
+    it('requires a matching payload binding when the request recorded one', () => {
+      const req = gates.request('t', 'a', 'x', 'r', { binding: 'sha256:abc' });
+      gates.decide(req.id, true, 'operator');
+      expect(gates.consume(req.id, 't', 'a', 'x', 'sha256:other')).toEqual({ ok: false, reason: 'mismatch' });
+      expect(gates.consume(req.id, 't', 'a', 'x')).toEqual({ ok: false, reason: 'mismatch' });
+      expect(gates.consume(req.id, 't', 'a', 'x', 'sha256:abc').ok).toBe(true);
+    });
+
+    it('refuses a binding for a request that recorded none', () => {
+      const req = gates.request('t', 'a', 'x', 'r');
+      gates.decide(req.id, true, 'operator');
+      expect(gates.consume(req.id, 't', 'a', 'x', 'sha256:abc')).toEqual({ ok: false, reason: 'mismatch' });
+    });
+
     it('reports pending, rejected and unknown requests', () => {
       const pending = gates.request('t', 'a', 'x', 'r');
       expect(gates.consume(pending.id, 't', 'a', 'x')).toEqual({ ok: false, reason: 'pending' });
