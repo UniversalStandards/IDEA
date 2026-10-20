@@ -33,37 +33,22 @@
 
 ## 2. Docker
 
-### Build the image
+The complete Docker guide — image contents, Docker Desktop MCP Toolkit, Claude Desktop, Compose hardening,
+approvals, tool credentials, the `/data` volume and troubleshooting — is in
+[`docs/deployment/docker.md`](deployment/docker.md).
+
 ```bash
-docker build -t mcp-hub:latest .
+# Build
+docker build -t universalstandards/universal-standard-mcp-server:0.1.0 .
+
+# stdio (MCP Toolkit / Claude Desktop / any stdio client)
+docker run -i --rm -e MCP_TRANSPORT=stdio -v universal-standard-mcp-data:/data \
+  universalstandards/universal-standard-mcp-server:0.1.0
+
+# Long-running HTTP service with the MCP endpoint at /mcp
+./scripts/generate-env.sh            # or .\scripts\generate-env.ps1 on Windows
+docker compose up -d --build
 ```
-
-### Run a single container
-```bash
-docker run -d \
-  --name mcp-hub \
-  -p 3000:3000 \
-  --env-file .env \
-  --restart unless-stopped \
-  mcp-hub:latest
-```
-
-### Docker Compose (recommended for local + team use)
-```bash
-# Start all services
-docker compose up -d
-
-# View logs
-docker compose logs -f hub
-
-# Stop
-docker compose down
-
-# Stop and remove volumes
-docker compose down -v
-```
-
-The compose stack starts: `hub` (the orchestration server) + `redis` (future distributed caching).
 
 ---
 

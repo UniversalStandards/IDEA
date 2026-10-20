@@ -59,7 +59,16 @@ export class HttpTransport implements ITransport {
           callback(new Error(`CORS: origin '${requestOrigin}' is not allowed`));
         },
         methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-        allowedHeaders: ['Content-Type', 'Authorization'],
+        // Mcp-* headers are required by the Streamable HTTP MCP transport
+        // for browser-based clients; the session id must also be readable.
+        allowedHeaders: [
+          'Content-Type',
+          'Authorization',
+          'Mcp-Session-Id',
+          'Mcp-Protocol-Version',
+          'Last-Event-ID',
+        ],
+        exposedHeaders: ['Mcp-Session-Id'],
         credentials: !isWildcard,
       }),
     );

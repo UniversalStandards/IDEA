@@ -12,11 +12,21 @@ import { ConnectionRateLimiter } from './middleware/rateLimit';
 import { SseTransport } from './sse';
 import { WsTransport } from './websocket';
 import { GrpcTransport } from './grpc';
+import { StreamableHttpTransport } from './streamable-http';
 import type { HttpServerLike } from './http';
+import { lifecycle } from '../core/lifecycle';
+import { isStdioOnly } from '../config';
 
 const logger = createLogger('transport-manager');
 
-export type TransportName = 'http' | 'http2' | 'sse' | 'websocket' | 'grpc' | 'stdio';
+export type TransportName =
+  | 'http'
+  | 'http2'
+  | 'sse'
+  | 'websocket'
+  | 'grpc'
+  | 'stdio'
+  | 'streamable-http';
 
 export interface ITransport {
   readonly name: TransportName;
@@ -55,7 +65,33 @@ export class TransportManager {
   async start(): Promise<void> {
     const selected = this.options.config.MCP_TRANSPORT;
 
+    // stdio-only: stdout/stdin are the MCP channel and no network listener is
+    // opened, so several instances can run side by side (one per client) and
+    // the process exits when the client disconnects.
+    if (isStdioOnly(this.options.config)) {
+      const stdio = new StdioTransportAdapter();
+      await stdio.initialize();
+      await stdio.start();
+      this.transports.push(stdio);
+      logger.info('Transport manager started', {
+        transport: selected,
+        activeTransports: this.transports.map((transport) => transport.name),
+      });
+      return;
+    }
+
     await this.httpTransport.initialize();
+
+    // MCP Streamable HTTP endpoint — mounted before the 404/error fallbacks.
+    if (this.options.config.MCP_HTTP_ENABLED) {
+      const mcpHttp = new StreamableHttpTransport({
+        app: this.options.app,
+        config: this.options.config,
+      });
+      await mcpHttp.initialize();
+      await mcpHttp.start();
+      this.transports.push(mcpHttp);
+    }
 
     let deferredTransport: ITransport | undefined;
 
@@ -144,12 +180,21 @@ function assertHttpServer(server: HttpServerLike): asserts server is HttpServer 
   throw new Error('WebSocket transport requires an HTTP/1.1 server');
 }
 
-class StdioTransportAdapter implements ITransport {
+export class StdioTransportAdapter implements ITransport {
   readonly name = 'stdio' as const;
   private adapter?: MCPAdapter;
+  private stopped = false;
 
-  async initialize(): Promise<void> {
+  constructor(
+    private readonly stdin: NodeJS.ReadableStream = process.stdin,
+    private readonly stdout: NodeJS.WritableStream = process.stdout,
+    private readonly onClientDisconnect: (reason: string) => Promise<void> = (reason) =>
+      lifecycle.shutdown(reason),
+  ) {}
+
+  initialize(): Promise<void> {
     this.adapter = new MCPAdapter();
+    return Promise.resolve();
   }
 
   async start(): Promise<void> {
@@ -157,11 +202,27 @@ class StdioTransportAdapter implements ITransport {
       throw new Error('Stdio transport has not been initialized');
     }
 
-    const transport = new StdioServerTransport();
+    const transport = new StdioServerTransport(
+      this.stdin as ConstructorParameters<typeof StdioServerTransport>[0],
+      this.stdout as ConstructorParameters<typeof StdioServerTransport>[1],
+    );
     await this.adapter.connect(transport);
+
+    // MCP stdio lifecycle: the client ends the session by closing our stdin.
+    // Without this the HTTP-free process would idle forever (orphaned
+    // containers under `docker run -i --rm`, zombie processes under desktop
+    // clients).
+    const onEnd = (): void => {
+      if (this.stopped) return;
+      logger.info('stdio client disconnected (stdin closed)');
+      void this.onClientDisconnect('MCP stdio client disconnected');
+    };
+    this.stdin.once('end', onEnd);
+    this.stdin.once('close', onEnd);
   }
 
   async stop(): Promise<void> {
-    await this.adapter?.getServer().close();
+    this.stopped = true;
+    await this.adapter?.close();
   }
 }

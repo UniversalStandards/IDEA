@@ -1,0 +1,64 @@
+# Docker MCP Toolkit server definition for the Universal Standard MCP Server.
+#
+# Add it to a custom catalog and enable it in Docker Desktop. The MCP CLI only
+# reads server files from its catalogs directory, so copy it there first:
+#   cp docker/mcp-catalog/universal-standard.yaml ~/.docker/mcp/catalogs/
+#   docker mcp catalog create universalstandards/mcp-catalog:latest \
+#     --title "Universal Standards" --server file://universal-standard.yaml
+#   (then: Docker Desktop → MCP Toolkit → Catalog → Universal Standards)
+#
+# The gateway runs the image over stdio (docker run -i). All installed tools
+# and their data persist in the named volume below. Tool credentials use the
+# TOOL_<TOOLNAME>__<VAR> convention (see docs/deployment/docker.md).
+name: universal-standard
+title: Universal Standard MCP Server
+type: server
+image: universalstandards/universal-standard-mcp-server:0.1.0
+description: >-
+  Governed MCP hub that discovers MCP servers (official MCP Registry, curated
+  reference servers, GitHub), installs them on demand, and runs their tools
+  behind policy checks and human approval for high-risk actions.
+readme: https://github.com/UniversalStandards/IDEA/blob/main/docs/deployment/docker.md
+longLived: true
+metadata:
+  category: devops
+  tags: [mcp-hub, orchestration, registry, governance]
+  license: Apache-2.0
+  owner: UniversalStandards
+tools:
+  - name: discover_capabilities
+    description: Search the official MCP Registry, curated reference servers, GitHub and enterprise catalogs for MCP servers
+  - name: install_tool
+    description: Install an MCP server through the governed pipeline and verify it starts
+  - name: uninstall_tool
+    description: Stop and remove an installed MCP server
+  - name: list_installed_tools
+    description: List installed MCP servers with their connection status
+  - name: list_capability_actions
+    description: List the actions an installed MCP server exposes, with input schemas
+  - name: execute_capability
+    description: Call an action on an installed MCP server and return its result
+  - name: get_hub_status
+    description: Hub version, transport, installed and connected tools, providers and metrics
+  - name: manage_policy
+    description: List hub policies or add/remove declarative policies (approval required)
+  - name: route_to_provider
+    description: Select the best available AI provider for a capability
+env:
+  - name: MCP_TRANSPORT
+    value: stdio
+  - name: AUTO_APPROVE_TOOLS
+    value: "{{universal-standard.auto_approve_tools}}"
+config:
+  - name: universal-standard
+    description: Hub settings
+    type: object
+    properties:
+      auto_approve_tools:
+        type: string
+        description: >-
+          Comma-separated tool IDs pre-approved for install/execute (for
+          example official:memory,official:time). Leave empty to approve each
+          high-risk action in your MCP client.
+volumes:
+  - universal-standard-mcp-data:/data

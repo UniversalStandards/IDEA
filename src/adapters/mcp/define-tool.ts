@@ -23,7 +23,7 @@
  */
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { CallToolResult, ToolAnnotations } from '@modelcontextprotocol/sdk/types.js';
 import type { z } from 'zod';
 
 /** A Zod "raw shape": the object literal passed to `z.object({...})`. */
@@ -45,7 +45,7 @@ export type ToolHandler<S extends ToolInputShape> = (
 interface ToolRegistrar {
   registerTool(
     name: string,
-    config: { description: string; inputSchema: ToolInputShape },
+    config: { description: string; inputSchema: ToolInputShape; annotations?: ToolAnnotations },
     cb: (args: Record<string, unknown>) => Promise<CallToolResult>,
   ): unknown;
 }
@@ -59,6 +59,9 @@ interface ToolRegistrar {
  * @param inputSchema  Zod raw shape describing the tool's input arguments
  *                     (use `{}` for tools that take no arguments).
  * @param handler      Async handler receiving the validated, typed arguments.
+ * @param annotations  Optional MCP tool annotations (readOnlyHint,
+ *                     destructiveHint, …) that help clients decide when to
+ *                     ask the user before calling the tool.
  */
 export function defineTool<S extends ToolInputShape>(
   server: McpServer,
@@ -66,12 +69,13 @@ export function defineTool<S extends ToolInputShape>(
   description: string,
   inputSchema: S,
   handler: ToolHandler<S>,
+  annotations?: ToolAnnotations,
 ): void {
   // Single, intentional cast through `unknown`: see the module header. The SDK
   // has already validated `args` against `inputSchema` before invoking `cb`.
   (server as unknown as ToolRegistrar).registerTool(
     name,
-    { description, inputSchema },
+    { description, inputSchema, ...(annotations !== undefined ? { annotations } : {}) },
     (args) => handler(args as ToolArgs<S>),
   );
 }

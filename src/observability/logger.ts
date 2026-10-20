@@ -80,17 +80,27 @@ export const redactFormat = format((info) => {
 // ─────────────────────────────────────────────────────────────────
 const nodeEnv = process.env['NODE_ENV'] ?? 'development';
 const logLevel = process.env['LOG_LEVEL'] ?? (nodeEnv === 'production' ? 'info' : 'debug');
-const logsDir = path.join(process.cwd(), 'logs');
+const logsDir = path.resolve(process.env['LOG_DIR'] ?? path.join(process.cwd(), 'logs'));
+// File logging (production only) can be switched off for read-only or
+// ephemeral containers where stderr/stdout is already collected.
+const fileLoggingRequested = process.env['LOG_FILE_ENABLED'] !== 'false';
 
-if (nodeEnv !== 'test') {
+function ensureLogsDir(): boolean {
   try {
     fs.mkdirSync(logsDir, { recursive: true });
+    fs.accessSync(logsDir, fs.constants.W_OK);
+    return true;
   } catch {
-    // Non-fatal — file transport will fail silently if dir cannot be created
+    // Not writable (e.g. a client launched the process from a system
+    // directory): fall back to console-only logging instead of crashing.
+    return false;
   }
 }
 
-const productionTransports = [
+const fileLoggingEnabled =
+  nodeEnv === 'production' && fileLoggingRequested && ensureLogsDir();
+
+const productionTransports = !fileLoggingEnabled ? [] : [
   new DailyRotateFile({
     dirname: logsDir,
     filename: 'mcp-hub-%DATE%.log',
@@ -120,13 +130,30 @@ const productionTransports = [
   }),
 ];
 
+const LOG_LEVELS = ['error', 'warn', 'info', 'http', 'verbose', 'debug', 'silly'];
+
+/**
+ * In stdio mode stdout carries the MCP JSON-RPC stream, so every console log
+ * line must go to stderr instead — one log line on stdout corrupts the
+ * protocol for the client. LOG_TO_STDERR=true forces the same routing in any
+ * mode (useful under process managers that only capture stderr).
+ */
+export function shouldLogToStderr(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env['MCP_TRANSPORT'] === 'stdio' || env['LOG_TO_STDERR'] === 'true';
+}
+
+const logToStderr = shouldLogToStderr();
+const consoleStream = logToStderr ? process.stderr : process.stdout;
+const useColor = consoleStream.isTTY === true && process.env['NO_COLOR'] === undefined;
+
 const consoleTransport = new transports.Console({
+  ...(logToStderr ? { stderrLevels: LOG_LEVELS } : {}),
   format:
     nodeEnv === 'production'
       ? format.combine(redactFormat(), format.timestamp(), format.json())
       : format.combine(
           redactFormat(),
-          format.colorize(),
+          ...(useColor ? [format.colorize()] : []),
           format.timestamp({ format: 'HH:mm:ss' }),
           format.printf(({ timestamp, level, message, module: mod, ...rest }) => {
             const meta = Object.keys(rest).length > 0 ? ` ${JSON.stringify(rest)}` : '';

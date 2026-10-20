@@ -6,7 +6,7 @@
  */
 
 import { format } from 'winston';
-import { redactFormat, redactSensitive } from '../src/observability/logger';
+import { redactFormat, redactSensitive, shouldLogToStderr } from '../src/observability/logger';
 
 // winston's well-known Symbol keys (triple-beam is only a transitive dependency).
 const LEVEL = Symbol.for('level');
@@ -112,5 +112,20 @@ describe('redactFormat()', () => {
 
     expect(result.err['message']).toBe('kaput');
     expect(result.err['apiKey']).toBe('[REDACTED]');
+  });
+});
+
+describe('shouldLogToStderr()', () => {
+  it('routes console logs to stderr in stdio mode so stdout stays a clean MCP channel', () => {
+    expect(shouldLogToStderr({ MCP_TRANSPORT: 'stdio' })).toBe(true);
+  });
+
+  it('honors LOG_TO_STDERR=true in any mode', () => {
+    expect(shouldLogToStderr({ MCP_TRANSPORT: 'http', LOG_TO_STDERR: 'true' })).toBe(true);
+  });
+
+  it('keeps stdout for HTTP modes by default', () => {
+    expect(shouldLogToStderr({ MCP_TRANSPORT: 'http' })).toBe(false);
+    expect(shouldLogToStderr({})).toBe(false);
   });
 });

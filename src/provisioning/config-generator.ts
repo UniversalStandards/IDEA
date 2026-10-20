@@ -48,6 +48,25 @@ function resolveTimeout(tool: ToolMetadata): number {
   return DEFAULT_TIMEOUT_MS;
 }
 
+/** Prefix for hub env vars that are injected into one tool's environment. */
+export function toolEnvPrefix(toolName: string): string {
+  return `TOOL_${toolName.toUpperCase().replace(/[^A-Z0-9]/g, '_')}__`;
+}
+
+/** Collect TOOL_<NAME>__<VAR> variables for `toolName`, keyed by <VAR>. */
+export function toolScopedEnv(toolName: string, source: NodeJS.ProcessEnv): Record<string, string> {
+  const prefix = toolEnvPrefix(toolName);
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (!key.startsWith(prefix) || value === undefined) continue;
+    const name = key.slice(prefix.length);
+    if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) {
+      out[name] = value;
+    }
+  }
+  return out;
+}
+
 function buildEnv(tool: ToolMetadata, credentials: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
 
@@ -63,6 +82,13 @@ function buildEnv(tool: ToolMetadata, credentials: Record<string, string>): Reco
     if (value && !env[key]) {
       env[key] = value;
     }
+  }
+
+  // Operator-scoped variables: TOOL_<NAME>__<VAR> on the hub becomes <VAR>
+  // in that tool's process only (e.g. TOOL_GITHUB__GITHUB_PERSONAL_ACCESS_TOKEN).
+  // Secrets stay in the hub's environment / Docker secrets, never in state files.
+  for (const [key, value] of Object.entries(toolScopedEnv(tool.name, process.env))) {
+    env[key] ??= value;
   }
 
   // Merge any env overrides from tool metadata

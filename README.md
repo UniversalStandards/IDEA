@@ -221,10 +221,40 @@ npm run build
 npm start
 ```
 
-**Docker:**
+### 7.1 Docker
+
 ```bash
-docker compose up
+# Build the image
+docker build -t universalstandards/universal-standard-mcp-server:0.1.0 .
+
+# 7.1.1 stdio — Docker Desktop MCP Toolkit, Claude Desktop, any stdio MCP client
+docker run -i --rm -e MCP_TRANSPORT=stdio -v universal-standard-mcp-data:/data \
+  universalstandards/universal-standard-mcp-server:0.1.0
+
+# 7.1.2 HTTP service — MCP Streamable HTTP endpoint at http://127.0.0.1:3000/mcp
+./scripts/generate-env.sh          # Windows: .\scripts\generate-env.ps1
+docker compose up -d --build
+
+# 7.1.3 End-to-end check (discover → install → execute → uninstall)
+docker compose exec hub node /app/dist/cli/smoke.js --http http://127.0.0.1:3000/mcp --install official:memory
 ```
+
+To add the server to Docker Desktop's MCP Toolkit, see
+[`docs/deployment/docker.md` §2](docs/deployment/docker.md#2-docker-desktop-mcp-toolkit-stdio).
+
+### 7.2 MCP tools exposed
+
+| Tool | Purpose |
+|---|---|
+| `discover_capabilities` | Search the official MCP Registry, curated reference servers, GitHub, enterprise catalog |
+| `install_tool` | Governed install (policy, trust, human approval, npm/uv) with start-up verification |
+| `list_installed_tools` | Installed servers and connection status |
+| `list_capability_actions` | The actions (tools) an installed server exposes, with input schemas |
+| `execute_capability` | Call an action on an installed server and return its result |
+| `uninstall_tool` | Stop and remove an installed server |
+| `get_hub_status` | Version, transport, installed/connected tools, providers, metrics |
+| `manage_policy` | List policies; add/remove declarative policies (approval required) |
+| `route_to_provider` | Select the best AI provider for a capability |
 
 ---
 

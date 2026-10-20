@@ -1,0 +1,9 @@
+# Build context allowlist: the image only needs package manifests, tsconfig
+# and src/. Everything else stays out of the context (faster builds, no
+# secrets or local state baked into layers).
+*
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/**
+src/**/*.test.ts

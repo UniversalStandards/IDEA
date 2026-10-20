@@ -14,6 +14,8 @@ import { graphqlAdapter } from '../adapters/graphql/index';
 import { cliAdapter } from '../adapters/cli/index';
 import { credentialBroker } from '../security/credential-broker';
 import { upcloudWorkerFactoryAdapter } from '../adapters/upcloud-worker-factory/index';
+import { installer } from '../provisioning/installer';
+import { closeDownstreamClients, getDownstreamClients } from '../adapters/mcp/downstream';
 
 const logger = createLogger('runtime-manager');
 
@@ -68,6 +70,12 @@ export class RuntimeManager {
       await upcloudWorkerFactoryAdapter.initialize();
       logger.info('Adapters and credential broker ready');
 
+      // Restore tools installed in previous runs (data volume) and start
+      // reaping idle downstream MCP server processes.
+      const restored = installer.restore();
+      getDownstreamClients().startReaper();
+      logger.info('Installed tools restored', { restored });
+
       metrics.increment('runtime_initializations_total');
       this.initialized = true;
       logger.info('Runtime manager initialized successfully');
@@ -81,6 +89,9 @@ export class RuntimeManager {
 
   async shutdown(): Promise<void> {
     logger.info('Runtime manager shutting down...');
+
+    // Close downstream MCP server connections (terminates their processes).
+    await closeDownstreamClients();
 
     // Stop all running tools
     const tools = runtimeRegistrar.list();

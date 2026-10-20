@@ -10,6 +10,25 @@ import { type Registry, type RegistrySearchOptions, type ToolMetadata } from './
 
 const logger = createLogger('registry-manager');
 
+function discoveryTimeoutMs(): number {
+  try {
+    return config.DISCOVERY_TIMEOUT_MS;
+  } catch {
+    const raw = Number.parseInt(process.env['DISCOVERY_TIMEOUT_MS'] ?? '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 10_000;
+  }
+}
+
+/** Reject if `promise` does not settle within `ms` (the work itself is not cancelled). */
+export function withDeadline<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} did not respond within ${ms} ms`)), ms);
+    timer.unref();
+  });
+  return Promise.race([promise, deadline]).finally(() => clearTimeout(timer));
+}
+
 const SOURCE_TRUST_ORDER: Record<ToolMetadata['source'], number> = {
   official: 4,
   enterprise: 3,
@@ -109,8 +128,12 @@ export class RegistryManager extends EventEmitter {
 
     const available = await this.getAvailableRegistries();
 
+    // Each registry gets its own deadline: discovery runs inside interactive
+    // MCP tool calls, and one slow or stalled source must not hold back the
+    // results the others already returned.
+    const deadlineMs = discoveryTimeoutMs();
     const resultsArrays = await Promise.allSettled(
-      available.map((r) => r.search(options)),
+      available.map((r) => withDeadline(r.search(options), deadlineMs, `${r.name} registry`)),
     );
 
     const all: ToolMetadata[] = [];
@@ -160,7 +183,10 @@ export class RegistryManager extends EventEmitter {
   async getById(id: string): Promise<ToolMetadata | null> {
     const available = await this.getAvailableRegistries();
 
-    const results = await Promise.allSettled(available.map((r) => r.getById(id)));
+    const deadlineMs = discoveryTimeoutMs();
+    const results = await Promise.allSettled(
+      available.map((r) => withDeadline(r.getById(id), deadlineMs, `${r.name} registry`)),
+    );
 
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value !== null) {
@@ -179,7 +205,10 @@ export class RegistryManager extends EventEmitter {
 
     const available = await this.getAvailableRegistries();
 
-    const results = await Promise.allSettled(available.map((r) => r.list()));
+    const deadlineMs = discoveryTimeoutMs();
+    const results = await Promise.allSettled(
+      available.map((r) => withDeadline(r.list(), deadlineMs, `${r.name} registry`)),
+    );
 
     const all: ToolMetadata[] = [];
     for (let i = 0; i < results.length; i++) {

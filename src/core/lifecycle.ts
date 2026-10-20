@@ -51,6 +51,22 @@ export class LifecycleManager {
     logger.info('🚀 Hub is ready and accepting requests');
   }
 
+  /**
+   * Begin a graceful shutdown from inside the process (e.g. the stdio MCP
+   * client closed stdin). Idempotent: a shutdown already in progress — from a
+   * signal or a previous call — is not started twice.
+   */
+  async shutdown(reason: string): Promise<void> {
+    if (this.shuttingDown) return;
+    this.shuttingDown = true;
+    logger.info(`${reason} — starting graceful shutdown`);
+    await this.runShutdown();
+  }
+
+  isShuttingDown(): boolean {
+    return this.shuttingDown;
+  }
+
   private async runShutdown(): Promise<void> {
     logger.info('Running shutdown hooks', { hookCount: this.hooks.length });
 
