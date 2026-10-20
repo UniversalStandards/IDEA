@@ -1,83 +1,73 @@
-# =============================================================
-# Universal Standard MCP Server — Docker Compose
-# Local development environment
-# =============================================================
+# =============================================================================
+# Universal Standard MCP Server — Docker Compose (production profile)
+#
+#   1. Generate secrets once:   ./scripts/generate-env.sh      (Linux/macOS)
+#                               .\scripts\generate-env.ps1     (Windows)
+#   2. Start:                   docker compose up -d --build
+#   3. Verify:                  docker compose exec hub node /app/dist/cli/smoke.js \
+#                                 --http http://127.0.0.1:3000/mcp
+#   MCP endpoint:               http://127.0.0.1:${HUB_PORT:-3000}/mcp
+#                               (Authorization: Bearer $MCP_AUTH_TOKEN)
+#
+# The port is published on loopback only; set HUB_BIND=0.0.0.0 to expose it
+# on your network (put TLS in front — see docs/deployment/docker.md).
+# =============================================================================
+
+name: universal-standard-mcp-server
 
 services:
   hub:
+    image: universalstandards/universal-standard-mcp-server:${HUB_VERSION:-0.1.0}
     build:
       context: .
       dockerfile: Dockerfile
       target: runtime
+      args:
+        VERSION: ${HUB_VERSION:-0.1.0}
     container_name: mcp-hub
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "${HUB_BIND:-127.0.0.1}:${HUB_PORT:-3000}:3000"
+    # Everything in .env reaches the container, including tool credentials
+    # named TOOL_<TOOLNAME>__<VAR> (injected into that tool's process only).
+    env_file:
+      - path: .env
+        required: false
     environment:
-      NODE_ENV: development
-      PORT: 3000
-      LOG_LEVEL: debug
+      NODE_ENV: production
       MCP_TRANSPORT: http
-      # Override these in a .env file or via environment
-      JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production!!}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-dev-encryption-key-change-in-prod!!}
-      CORS_ORIGIN: "*"
-      ENABLE_GITHUB_REGISTRY: "true"
-      ENABLE_OFFICIAL_MCP_REGISTRY: "true"
-      ENABLE_LOCAL_WORKSPACE_SCAN: "false"
-      ENABLE_METRICS: "true"
-      ENABLE_TRACING: "true"
-      ENABLE_AUDIT_LOGGING: "true"
-      COST_TRACKING_ENABLED: "true"
-      REDIS_URL: redis://redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is not set; run scripts/generate-env first}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is not set; run scripts/generate-env first}
+      MCP_AUTH_TOKEN: ${MCP_AUTH_TOKEN:?MCP_AUTH_TOKEN is not set; run scripts/generate-env first}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      REQUIRE_APPROVAL_FOR_HIGH_RISK_ACTIONS: ${REQUIRE_APPROVAL_FOR_HIGH_RISK_ACTIONS:-true}
+      AUTO_APPROVE_TOOLS: ${AUTO_APPROVE_TOOLS:-}
+      ENABLE_LOCAL_WORKSPACE_SCAN: ${ENABLE_LOCAL_WORKSPACE_SCAN:-false}
     volumes:
-      - hub-runtime:/app/runtime
-      - hub-logs:/app/logs
-      - ./policies:/app/policies:ro
-    networks:
-      - hub-net
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "node",
-          "-e",
-          "require('http').get('http://localhost:3000/health/live', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-
-  redis:
-    image: redis:7-alpine
-    container_name: mcp-redis
-    restart: unless-stopped
-    # Redis is NOT exposed to the host in production; only accessible within hub-net
-    expose:
-      - "6379"
-    command: redis-server --save 60 1 --loglevel warning
-    volumes:
-      - redis-data:/data
-    networks:
-      - hub-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - hub-data:/data
+    # Hardening: immutable root filesystem, no privilege escalation, no
+    # Linux capabilities. Writable paths: /data (volume), /tmp and the npm
+    # cache in $HOME (tmpfs).
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /home/mcphub:size=1g,uid=10001,gid=10001,mode=0700
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
 
 volumes:
-  hub-runtime:
-    driver: local
-  hub-logs:
-    driver: local
-  redis-data:
-    driver: local
-
-networks:
-  hub-net:
-    driver: bridge
+  hub-data:
+    name: universal-standard-mcp-data

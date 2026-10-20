@@ -83,3 +83,6 @@ temp/
 
 # Docker
 .docker/
+
+# Hub data directory (installed MCP servers, install state) — local default of HUB_DATA_DIR
+.mcp/
